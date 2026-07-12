@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { api, download, restoreSession, setSession, type Session } from './api';
 import { brandConfig } from './config/brand.config';
+import { Login } from './pages/Login';
+import { AcceptInvite } from './pages/AcceptInvite';
+import { ForgotPassword } from './pages/ForgotPassword';
+import { ResetPassword } from './pages/ResetPassword';
+import { ImportProducts, ProductEditor } from './pages/ProductEditor';
+import { CatalogManager } from './pages/CatalogManager';
 type Row=Record<string,any>;
 const statusLabels:Record<string,string>={new:'جديد',in_review:'قيد المراجعة',contacted:'تم التواصل',quote_sent:'أرسل العرض',
   accepted:'مقبول',rejected:'مرفوض',cancelled:'ملغي',closed:'مغلق'};
@@ -14,16 +20,6 @@ function Page({title,description,action,children}:{title:string;description?:str
   return <><div className="page-head"><div><h1>{title}</h1>{description&&<p>{description}</p>}</div>{action}</div>{children}</>;
 }
 function Empty({loading,label='لا توجد بيانات'}:{loading?:boolean;label?:string}){return <div className="empty">{loading?'جارٍ التحميل…':label}</div>;}
-function Login({onLogin}:{onLogin:(session:Session)=>void}){
-  const[email,setEmail]=useState(''),[password,setPassword]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);
-  const submit=async(event:FormEvent)=>{event.preventDefault();setBusy(true);setError('');try{const next=await api<Session>('/auth/login',{method:'POST',body:JSON.stringify({email,password})});
-    setSession(next);onLogin(next);}catch(value){setError((value as Error).message);}finally{setBusy(false);}};
-  return <main className="login-page" dir="rtl"><form className="login-card" onSubmit={submit}><div className="brand-mark">RFQ</div>
-    <h1>لوحة إدارة الكتالوج</h1><p className="muted">تسجيل دخول الفريق لإدارة طلبات عروض الأسعار.</p>{error&&<div className="error">{error}</div>}
-    <div className="field"><label>البريد الإلكتروني</label><input type="email" required value={email} onChange={e=>setEmail(e.target.value)}/></div>
-    <div className="field"><label>كلمة المرور</label><input type="password" required value={password} onChange={e=>setPassword(e.target.value)}/></div>
-    <button className="button" disabled={busy}>{busy?'جارٍ الدخول…':'تسجيل الدخول'}</button></form></main>;
-}
 const nav:Array<{label:string;items:Array<[string,string]>}>=[
   {label:'العمل',items:[['dashboard','لوحة المعلومات'],['requests','طلبات عروض الأسعار'],['requests:new','الطلبات الجديدة'],['contacts','جهات الاتصال'],['notifications','الإشعارات']]},
   {label:'الكتالوج',items:[['products','المنتجات'],['categories','التصنيفات'],['brands','العلامات التجارية'],['attributes','الخصائص'],['filters','الفلاتر'],['media','الوسائط']]},
@@ -31,6 +27,10 @@ const nav:Array<{label:string;items:Array<[string,string]>}>=[
 ];
 export function App(){
   const[sessionState,setSessionState]=useState<Session|null>(()=>restoreSession()),[page,setPage]=useState('dashboard');
+  const path = window.location.pathname;
+  if(path === '/accept-invite') return <AcceptInvite />;
+  if(path === '/reset-password') return <ResetPassword />;
+  if(path === '/forgot-password') return <ForgotPassword />;
   if(!sessionState)return <Login onLogin={setSessionState}/>;
   const user=sessionState.user;
   const logout=async()=>{try{await api('/auth/logout',{method:'POST'});}finally{setSession(null);setSessionState(null);}};
@@ -45,7 +45,7 @@ export function App(){
 function Router({page}:{page:string}){
   if(page==='dashboard')return <Dashboard/>;
   if(page==='products')return <Products/>;
-  if(['categories','brands','attributes','filters'].includes(page))return <Catalog kind={page}/>;
+  if(['categories','brands','attributes','filters'].includes(page))return <CatalogManager kind={page}/>;
   if(page==='requests'||page.startsWith('requests:'))return <Requests initialStatus={page.split(':')[1]??''}/>;
   if(page==='contacts')return <Contacts/>;
   if(page==='notifications')return <Notifications/>;
@@ -70,66 +70,18 @@ function MetricTable({title,rows}:{title:string;rows:Row[]}){return <div classNa
   <div key={index} style={{display:'flex',justifyContent:'space-between',padding:'8px 0',borderBottom:'1px solid #edf2f3'}}><span>{row.label}</span><strong>{row.request_count}</strong></div>):<Empty/>}</div>;}
 function Products(){
   const{data,error,loading,load}=useRemote<{items:Row[];count:number}>('/admin/products',{items:[],count:0});
-  const[editing,setEditing]=useState<Row|null>(null);
+  const[editing,setEditing]=useState<Row|null>(null),[importing,setImporting]=useState(false);
   return <Page title="المنتجات" description="منتجات كتالوج بمواصفات ووحدات قياس دون أي حقول مالية."
-    action={<button className="button" onClick={()=>setEditing({})}>إضافة منتج</button>}>{error&&<div className="error">{error}</div>}
+    action={<div className="toolbar"><button className="button secondary" onClick={()=>setImporting(true)}>استيراد Excel</button><button className="button" onClick={()=>setEditing({})}>إضافة منتج</button></div>}>{error&&<div className="error">{error}</div>}
     <div className="table-wrap">{loading?<Empty loading/>:<table><thead><tr><th>المنتج</th><th>SKU</th><th>الحالة</th><th>التوفر</th><th>الوحدة</th><th></th></tr></thead>
       <tbody>{data.items.map(row=><tr key={row.id}><td><strong>{row.title_ar}</strong><div className="muted">{row.title_en}</div></td><td>{row.sku||'—'}</td>
         <td><span className="badge">{row.status}</span></td><td>{row.availability_status}</td><td>{units[row.unit_of_measure]??row.unit_of_measure}</td>
         <td><button className="button secondary small" onClick={()=>void api<Row>('/admin/products/'+row.id).then(setEditing)}>تعديل</button></td></tr>)}</tbody></table>}</div>
-    {editing&&<ProductDialog product={editing} close={()=>setEditing(null)} saved={async()=>{setEditing(null);await load();}}/>}</Page>;
-}
-function ProductDialog({product,close,saved}:{product:Row;close:()=>void;saved:()=>Promise<void>}){
-  const initial={titleAr:product.title_ar??'',titleEn:product.title_en??'',slug:product.slug??'',sku:product.sku??'',
-    modelCode:product.model_code??'',status:product.status??'draft',availabilityStatus:product.availability_status??'available',
-    unitOfMeasure:product.unit_of_measure??'piece',minimumRequestQuantity:Number(product.minimum_request_quantity??1),
-    maximumRequestQuantity:product.maximum_request_quantity??'',quantityStep:Number(product.quantity_step??1),
-    quoteEnabled:product.quote_enabled??true,shortDescriptionAr:product.short_description_ar??'',detailedDescriptionAr:product.detailed_description_ar??'',
-    specifications:JSON.stringify(product.specifications??{},null,2),
-    variants:JSON.stringify((product.variants??[]).map((item:Row)=>({titleAr:item.title_ar,titleEn:item.title_en,sku:item.sku,barcode:item.barcode,
-      attributes:item.attributes,isDefault:item.is_default,isActive:item.is_active,sortOrder:item.sort_order})),null,2),
-    images:JSON.stringify((product.images??[]).map((item:Row)=>({imageUrl:item.image_url,altTextAr:item.alt_text_ar,altTextEn:item.alt_text_en,
-      isPrimary:item.is_primary,sortOrder:item.sort_order})),null,2)};
-  const[form,setForm]=useState(initial),[error,setError]=useState('');
-  const change=(key:string,value:any)=>setForm(current=>({...current,[key]:value}));
-  const submit=async(event:FormEvent)=>{event.preventDefault();setError('');try{const body={...form,maximumRequestQuantity:form.maximumRequestQuantity?Number(form.maximumRequestQuantity):undefined,
-      specifications:JSON.parse(form.specifications||'{}'),variants:JSON.parse(form.variants||'[]'),images:JSON.parse(form.images||'[]')};
-      await api(product.id?'/admin/products/'+product.id:'/admin/products',{method:product.id?'PATCH':'POST',body:JSON.stringify(body)});await saved();}
-    catch(value){setError((value as Error).message);}};
-  return <div className="dialog-backdrop"><form className="dialog" onSubmit={submit}><div className="dialog-head"><h2>{product.id?'تعديل المنتج':'منتج جديد'}</h2><button type="button" className="close" onClick={close}>×</button></div>
-    {error&&<div className="error">{error}</div>}<div className="form-grid"><Field label="الاسم بالعربية" value={form.titleAr} onChange={v=>change('titleAr',v)} required/>
-      <Field label="الاسم بالإنجليزية" value={form.titleEn} onChange={v=>change('titleEn',v)}/><Field label="الرابط المختصر" value={form.slug} onChange={v=>change('slug',v)} required/>
-      <Field label="SKU" value={form.sku} onChange={v=>change('sku',v)}/><Field label="الموديل" value={form.modelCode} onChange={v=>change('modelCode',v)}/>
-      <label className="field"><span>الحالة</span><select value={form.status} onChange={e=>change('status',e.target.value)}><option value="draft">مسودة</option><option value="published">منشور</option><option value="archived">مؤرشف</option></select></label>
-      <label className="field"><span>التوفر</span><select value={form.availabilityStatus} onChange={e=>change('availabilityStatus',e.target.value)}>
-        <option value="available">متاح</option><option value="on_request">حسب الطلب</option><option value="temporarily_unavailable">غير متاح مؤقتًا</option><option value="discontinued">متوقف</option></select></label>
-      <label className="field"><span>وحدة القياس</span><select value={form.unitOfMeasure} onChange={e=>change('unitOfMeasure',e.target.value)}>
-        {Object.entries(units).map(([key,label])=><option value={key} key={key}>{label}</option>)}</select></label>
-      <Field label="الحد الأدنى" type="number" step="0.001" value={form.minimumRequestQuantity} onChange={v=>change('minimumRequestQuantity',Number(v))}/>
-      <Field label="الحد الأعلى" type="number" step="0.001" value={form.maximumRequestQuantity} onChange={v=>change('maximumRequestQuantity',v)}/>
-      <Field label="خطوة الكمية" type="number" step="0.001" value={form.quantityStep} onChange={v=>change('quantityStep',Number(v))}/>
-      <label className="field full"><span>الوصف المختصر</span><textarea rows={2} value={form.shortDescriptionAr} onChange={e=>change('shortDescriptionAr',e.target.value)}/></label>
-      <label className="field full"><span>الوصف التفصيلي</span><textarea rows={4} value={form.detailedDescriptionAr} onChange={e=>change('detailedDescriptionAr',e.target.value)}/></label>
-      <label className="field full"><span>المواصفات (JSON)</span><textarea rows={5} dir="ltr" value={form.specifications} onChange={e=>change('specifications',e.target.value)}/></label>
-      <label className="field full"><span>المتغيرات (JSON)</span><textarea rows={6} dir="ltr" value={form.variants} onChange={e=>change('variants',e.target.value)}/></label>
-      <label className="field full"><span>الصور (JSON)</span><textarea rows={6} dir="ltr" value={form.images} onChange={e=>change('images',e.target.value)}/></label>
-      <label className="field full"><span><input type="checkbox" checked={form.quoteEnabled} onChange={e=>change('quoteEnabled',e.target.checked)}/> متاح لطلب عرض السعر</span></label></div>
-    <div className="toolbar" style={{marginTop:18}}><button className="button">حفظ</button><button type="button" className="button secondary" onClick={close}>إلغاء</button></div></form></div>;
+    {editing&&<ProductEditor product={editing} close={()=>setEditing(null)} saved={async()=>{setEditing(null);await load();}}/>}
+    {importing&&<ImportProducts close={()=>setImporting(false)} done={load}/>}</Page>;
 }
 function Field({label,value,onChange,required,type='text',step}:{label:string;value:any;onChange:(value:string)=>void;required?:boolean;type?:string;step?:string}){
   return <label className="field"><span>{label}</span><input type={type} step={step} required={required} value={value} onChange={e=>onChange(e.target.value)}/></label>;
-}
-const catalogNames:Record<string,string>={categories:'التصنيفات',brands:'العلامات التجارية',attributes:'الخصائص',filters:'الفلاتر'};
-function Catalog({kind}:{kind:string}){
-  const{data,error,loading,load}=useRemote<Row[]>('/admin/catalog/'+kind,[]);const[show,setShow]=useState(false),[form,setForm]=useState({name:'',slug:''}),[message,setMessage]=useState('');
-  const create=async(event:FormEvent)=>{event.preventDefault();const body=kind==='categories'||kind==='brands'?{titleAr:form.name,slug:form.slug}:{nameAr:form.name,slug:form.slug};
-    try{await api('/admin/catalog/'+kind,{method:'POST',body:JSON.stringify(body)});setShow(false);setForm({name:'',slug:''});await load();}catch(value){setMessage((value as Error).message);}};
-  return <Page title={catalogNames[kind]??kind} action={<button className="button" onClick={()=>setShow(true)}>إضافة</button>}>{error&&<div className="error">{error}</div>}
-    <div className="table-wrap">{loading?<Empty loading/>:<table><thead><tr><th>الاسم</th><th>الرابط المختصر</th><th>الترتيب</th><th>الحالة</th></tr></thead>
-      <tbody>{data.map(row=><tr key={row.id}><td>{row.title_ar??row.name_ar}</td><td>{row.slug}</td><td>{row.sort_order}</td><td>{row.is_active===false?'متوقف':'فعّال'}</td></tr>)}</tbody></table>}</div>
-    {show&&<div className="dialog-backdrop"><form className="dialog" style={{maxWidth:520}} onSubmit={create}><div className="dialog-head"><h2>إضافة سجل</h2><button type="button" className="close" onClick={()=>setShow(false)}>×</button></div>
-      {message&&<div className="error">{message}</div>}<Field label="الاسم بالعربية" value={form.name} onChange={name=>setForm(current=>({...current,name}))} required/>
-      <Field label="الرابط المختصر" value={form.slug} onChange={slug=>setForm(current=>({...current,slug}))} required/><button className="button" style={{marginTop:18}}>حفظ</button></form></div>}</Page>;
 }
 function Requests({initialStatus}:{initialStatus:string}){
   const[status,setStatus]=useState(initialStatus),[search,setSearch]=useState(''),[selected,setSelected]=useState<Row|null>(null);

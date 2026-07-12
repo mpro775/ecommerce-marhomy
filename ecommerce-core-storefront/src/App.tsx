@@ -118,12 +118,13 @@ function Product({lang,slug,navigate,add}:{lang:Lang;slug:string;navigate:(page:
       <button key={item.id} style={{display:'block',border:0,background:'none',padding:'8px 0',color:'#0f5f73'}} onClick={()=>navigate({name:'product',slug:item.slug})}>{title(item,lang)}</button>)}</div>}</div></main>;
 }
 function Cart({lang,cart,token,reload,navigate}:{lang:Lang;cart:Row|null;token:string|null;reload:()=>void;navigate:(page:Page)=>void}){
-  const t=text[lang];const[formStartedAt]=useState(()=>new Date().toISOString()),[error,setError]=useState(''),[sending,setSending]=useState(false);
+  const t=text[lang];const[formStartedAt]=useState(()=>new Date().toISOString()),[error,setError]=useState(''),[sending,setSending]=useState(false),[idempotencyKey,setIdempotencyKey]=useState(()=>crypto.randomUUID());
   useEffect(()=>{if(cart?.items?.length)void track('quote_form_started');},[cart?.items?.length]);
+  useEffect(()=>{setIdempotencyKey(crypto.randomUUID());},[cart]);
   const update=async(id:string,quantity:number)=>{if(!token)return;await api('/quote-carts/'+token+'/items/'+id,{method:'PATCH',body:JSON.stringify({quantity})});reload();};
   const remove=async(id:string)=>{if(!token)return;await api('/quote-carts/'+token+'/items/'+id,{method:'DELETE'});reload();};
   const submit=async(event:FormEvent<HTMLFormElement>)=>{event.preventDefault();if(!token)return;setSending(true);setError('');const data=Object.fromEntries(new FormData(event.currentTarget));
-    try{const result=await api<Row>('/quote-requests',{method:'POST',headers:{'idempotency-key':crypto.randomUUID()},body:JSON.stringify({
+    try{const result=await api<Row>('/quote-requests',{method:'POST',headers:{'idempotency-key':idempotencyKey},body:JSON.stringify({
       cartToken:token,fullName:data.fullName,phone:data.phone,email:data.email||undefined,companyName:data.companyName||undefined,
       city:data.city||undefined,addressText:data.addressText||undefined,preferredContactMethod:data.preferredContactMethod||undefined,
       customerNote:data.customerNote||undefined,website:data.website||undefined,formStartedAt,source:'web'})});

@@ -18,7 +18,7 @@ export async function api<T>(path:string,options:RequestInit={}):Promise<T>{
   if(response.status===401&&await refresh()){headers.set('authorization','Bearer '+session!.accessToken);response=await fetch(API_BASE+path,{...options,headers});}
   if(!response.ok){const body=await response.json().catch(()=>({message:'تعذر تنفيذ الطلب'})) as {message?:string|string[]};
     throw new Error(Array.isArray(body.message)?body.message.join('، '):body.message??'تعذر تنفيذ الطلب');}
-  if(response.status===204)return undefined as T;return response.json() as Promise<T>;
+  if(response.status===204)return undefined as T;const text=await response.text();return(text?JSON.parse(text):undefined) as T;
 }
 export async function download(path:string,fileName:string):Promise<void>{
   const headers=new Headers();if(session?.accessToken)headers.set('authorization','Bearer '+session.accessToken);

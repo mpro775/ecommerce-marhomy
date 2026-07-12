@@ -6,7 +6,7 @@ import { assertQuoteQuantity, assertSpamSafe, assertStatusTransition, QuoteStatu
 import type { RequestContext } from '../common/utils/request-context';
 import type { AuthUser } from '../auth/auth.types';
 import type { CreateQuoteNoteDto, ListQuoteRequestsQuery, SubmitQuoteRequestDto, UpdateAssigneeDto, UpdateContactDto, UpdateQuoteStatusDto } from './dto';
-import * as XLSX from 'xlsx';
+import * as ExcelJS from 'exceljs';
 interface CartRow{id:string;status:string;expires_at:Date|null}
 interface ItemRow{id:string;product_id:string;variant_id:string|null;quantity:string;unit_snapshot:string;item_note:string|null;
   selected_options:Record<string,unknown>;title_ar:string;title_en:string|null;sku:string|null;specifications:Record<string,unknown>;
@@ -75,6 +75,7 @@ export class QuoteRequestsService{
       await client.query(`UPDATE quote_carts SET status='submitted',submitted_at=NOW(),updated_at=NOW() WHERE id=$1`,[cart.id]);
       const notification=await client.query<{id:string}>(`INSERT INTO notifications(type,title,body,entity_type,entity_id)
         VALUES('quote_request_new',$1,$2,'quote_request',$3) RETURNING id`,['New quote request '+requestNumber,'A new quote request has been submitted',requestId]);
+      await client.query(`INSERT INTO notification_recipients(notification_id,admin_user_id) SELECT $1,id FROM admin_users WHERE is_active=TRUE AND deleted_at IS NULL`,[notification.rows[0].id]);
       await client.query(`INSERT INTO notification_deliveries(notification_id,channel,status) VALUES($1,'in_app','sent')`,[notification.rows[0].id]);
       await client.query(`INSERT INTO outbox_events(event_type,aggregate_type,aggregate_id,payload)
         VALUES('quote_request_submitted','quote_request',$1,$2)`,[requestId,{requestNumber,fullName:input.fullName,phone,email:input.email??null,itemCount:itemsResult.rows.length}]);
@@ -128,6 +129,7 @@ export class QuoteRequestsService{
       const notification=await client.query<{id:string}>(`INSERT INTO notifications(type,title,body,entity_type,entity_id)
         VALUES('quote_request_status_changed',$1,$2,'quote_request',$3) RETURNING id`,
         ['Quote request '+current.rows[0].request_number,'Status changed to '+input.status,id]);
+      await client.query(`INSERT INTO notification_recipients(notification_id,admin_user_id) SELECT $1,id FROM admin_users WHERE is_active=TRUE AND deleted_at IS NULL`,[notification.rows[0].id]);
       await client.query(`INSERT INTO notification_deliveries(notification_id,channel,status) VALUES($1,'in_app','sent')`,[notification.rows[0].id]);
       await client.query(`INSERT INTO audit_logs(admin_user_id,action,entity_type,entity_id,metadata)
         VALUES($1,'quote_request.status_changed','quote_request',$2,$3)`,[user.id,id,{from:current.rows[0].status,to:input.status}]);
@@ -141,8 +143,9 @@ export class QuoteRequestsService{
         if(!admin.rows[0])throw new BadRequestException('Assignee is not an active admin user');}
       const updated=await client.query(`UPDATE quote_requests SET assigned_to_admin_user_id=$2,updated_at=NOW() WHERE id=$1 RETURNING *`,[id,input.adminUserId??null]);
       if(!updated.rows[0])throw new NotFoundException('Quote request not found');
-      if(input.adminUserId){const notification=await client.query<{id:string}>(`INSERT INTO notifications(admin_user_id,type,title,body,entity_type,entity_id)
-        VALUES($1,'quote_request_assigned','Quote request assigned','A quote request was assigned to you','quote_request',$2) RETURNING id`,[input.adminUserId,id]);
+      if(input.adminUserId){const notification=await client.query<{id:string}>(`INSERT INTO notifications(type,title,body,entity_type,entity_id)
+        VALUES('quote_request_assigned','Quote request assigned','A quote request was assigned to you','quote_request',$1) RETURNING id`,[id]);
+        await client.query(`INSERT INTO notification_recipients(notification_id,admin_user_id) VALUES($1,$2)`,[notification.rows[0].id,input.adminUserId]);
         await client.query(`INSERT INTO notification_deliveries(notification_id,channel,status) VALUES($1,'in_app','sent')`,[notification.rows[0].id]);}
       await client.query(`INSERT INTO audit_logs(admin_user_id,action,entity_type,entity_id,metadata)
         VALUES($1,'quote_request.assigned','quote_request',$2,$3)`,[user.id,id,{assigneeId:input.adminUserId??null}]);
@@ -156,6 +159,7 @@ export class QuoteRequestsService{
     if(!result.rows[0])throw new NotFoundException('Quote request not found');
     const notification=await this.database.query<{id:string}>(`INSERT INTO notifications(type,title,body,entity_type,entity_id)
       VALUES('quote_request_note_added','Internal note added','A note was added to a quote request','quote_request',$1) RETURNING id`,[id]);
+    await this.database.query(`INSERT INTO notification_recipients(notification_id,admin_user_id) SELECT $1,id FROM admin_users WHERE is_active=TRUE AND deleted_at IS NULL`,[notification.rows[0].id]);
     await this.database.query(`INSERT INTO notification_deliveries(notification_id,channel,status) VALUES($1,'in_app','sent')`,[notification.rows[0].id]);
     await this.database.query(`INSERT INTO audit_logs(admin_user_id,action,entity_type,entity_id,metadata)
       VALUES($1,'quote_request.note_added','quote_request',$2,$3)`,[user.id,id,{noteId:result.rows[0].id}]);
@@ -165,9 +169,15 @@ export class QuoteRequestsService{
     FROM quote_request_status_history h LEFT JOIN admin_users u ON u.id=h.changed_by_admin_user_id
     WHERE h.quote_request_id=$1 ORDER BY h.created_at`,[id])).rows;}
   async exportWorkbook(query:ListQuoteRequestsQuery):Promise<Buffer>{
-    const list=await this.list({...query,page:1,pageSize:100});const workbook=XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook,XLSX.utils.json_to_sheet(list.items as Record<string,unknown>[]),'Quote Requests');
-    return Buffer.from(XLSX.write(workbook,{type:'buffer',bookType:'xlsx'}));
+    const list=await this.list({...query,page:1,pageSize:100});
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Quote Requests');
+    if (list.items.length > 0) {
+      sheet.columns = Object.keys(list.items[0] as object).map(key => ({ header: key, key }));
+      sheet.addRows(list.items);
+    }
+    const buffer = await workbook.xlsx.writeBuffer();
+    return Buffer.from(buffer);
   }
   async contacts(search=''):Promise<unknown[]>{return(await this.database.query(`SELECT c.*,
     (SELECT COUNT(*)::int FROM quote_requests q WHERE q.contact_id=c.id) AS request_count

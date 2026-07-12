@@ -4,7 +4,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import type { AuthUser } from '../auth/auth.types';
 import { PermissionsGuard } from '../rbac/permissions.guard';
 import { CatalogService } from './catalog.service';
-import { CreateCatalogValueDto, UpsertCatalogEntryDto } from './dto';
+import { CreateCatalogValueDto, UpdateCatalogValueDto, UpdateCategoryAttributesDto, UpsertCatalogEntryDto } from './dto';
 import { AuditService } from '../audit/audit.service';
 @Controller('catalog')
 export class CatalogController{
@@ -37,6 +37,16 @@ export class AdminCatalogController{
   @Post(':kind/:id/values')
   value(@Param('kind')kind:'attributes'|'filters',@Param('id')id:string,@Body()body:CreateCatalogValueDto,@CurrentUser()user:AuthUser):Promise<unknown>{
     this.assertPermission(user,kind,'write');return this.catalog.addValue(kind,id,body);}
+  @Patch(':kind/:id/values/:valueId')
+  updateValue(@Param('kind')kind:'attributes'|'filters',@Param('id')id:string,@Param('valueId')valueId:string,
+    @Body()body:UpdateCatalogValueDto,@CurrentUser()user:AuthUser):Promise<unknown>{
+    this.assertPermission(user,kind,'write');return this.catalog.updateValue(kind,id,valueId,body);}
+  @Delete(':kind/:id/values/:valueId')
+  removeValue(@Param('kind')kind:'attributes'|'filters',@Param('id')id:string,@Param('valueId')valueId:string,
+    @CurrentUser()user:AuthUser):Promise<void>{this.assertPermission(user,kind,'write');return this.catalog.removeValue(kind,id,valueId);}
+  @Patch('categories/:id/attributes')
+  categoryAttributes(@Param('id')id:string,@Body()body:UpdateCategoryAttributesDto,@CurrentUser()user:AuthUser):Promise<void>{
+    this.assertPermission(user,'categories','write');return this.catalog.replaceCategoryAttributes(id,body.attributeIds);}
   private assertPermission(user:AuthUser,kind:string,action:'read'|'write'):void{
     if(!user.permissions.includes(kind+':'+action))throw new ForbiddenException('Insufficient permissions');
   }

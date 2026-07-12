@@ -1,13 +1,18 @@
 CREATE TABLE notifications (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  admin_user_id UUID REFERENCES admin_users(id) ON DELETE CASCADE,
   type VARCHAR(80) NOT NULL,
   title VARCHAR(255) NOT NULL,
   body TEXT NOT NULL,
   entity_type VARCHAR(80),
   entity_id UUID,
-  read_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE notification_recipients (
+  notification_id UUID NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,
+  admin_user_id UUID NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
+  read_at TIMESTAMPTZ,
+  delivered_at TIMESTAMPTZ,
+  PRIMARY KEY (notification_id, admin_user_id)
 );
 CREATE TABLE notification_deliveries (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

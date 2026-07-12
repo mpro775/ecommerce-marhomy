@@ -46,15 +46,19 @@ export class OutboxService{
     }
   }
   private async createOverdueNotifications():Promise<void>{
-    await this.database.query(`INSERT INTO notifications(type,title,body,entity_type,entity_id)
+    const reviewResult=await this.database.query<{id:string}>(`INSERT INTO notifications(type,title,body,entity_type,entity_id)
       SELECT 'quote_request_review_overdue','Quote request needs review','A new quote request has waited more than two hours',
         'quote_request',q.id FROM quote_requests q
       WHERE q.status='new' AND q.submitted_at<NOW()-INTERVAL '2 hours'
-        AND NOT EXISTS(SELECT 1 FROM notifications n WHERE n.type='quote_request_review_overdue' AND n.entity_id=q.id)`);
-    await this.database.query(`INSERT INTO notifications(type,title,body,entity_type,entity_id)
+        AND NOT EXISTS(SELECT 1 FROM notifications n WHERE n.type='quote_request_review_overdue' AND n.entity_id=q.id) RETURNING id`);
+    if(reviewResult.rows.length){await this.database.query(`INSERT INTO notification_recipients(notification_id,admin_user_id)
+      SELECT n.id,a.id FROM unnest($1::uuid[]) n(id) CROSS JOIN admin_users a WHERE a.is_active=TRUE AND a.deleted_at IS NULL`,[reviewResult.rows.map(r=>r.id)]);}
+    const contactResult=await this.database.query<{id:string}>(`INSERT INTO notifications(type,title,body,entity_type,entity_id)
       SELECT 'quote_request_contact_overdue','Customer contact is overdue','A quote request has not been contacted within one day',
         'quote_request',q.id FROM quote_requests q
       WHERE q.status IN ('new','in_review') AND q.submitted_at<NOW()-INTERVAL '1 day'
-        AND NOT EXISTS(SELECT 1 FROM notifications n WHERE n.type='quote_request_contact_overdue' AND n.entity_id=q.id)`);
+        AND NOT EXISTS(SELECT 1 FROM notifications n WHERE n.type='quote_request_contact_overdue' AND n.entity_id=q.id) RETURNING id`);
+    if(contactResult.rows.length){await this.database.query(`INSERT INTO notification_recipients(notification_id,admin_user_id)
+      SELECT n.id,a.id FROM unnest($1::uuid[]) n(id) CROSS JOIN admin_users a WHERE a.is_active=TRUE AND a.deleted_at IS NULL`,[contactResult.rows.map(r=>r.id)]);}
   }
 }

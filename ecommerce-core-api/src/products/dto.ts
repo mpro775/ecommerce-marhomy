@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import { IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUrl, IsUUID, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 const units=['piece','box','carton','meter','kilogram','gram','liter','set','roll','pack'] as const;
 export class ProductImageDto{
+  @IsOptional()@IsUUID()mediaAssetId?:string;
   @IsUrl({require_tld:false})imageUrl!:string;
   @IsOptional()@IsString()@MaxLength(255)altTextAr?:string;
   @IsOptional()@IsString()@MaxLength(255)altTextEn?:string;
@@ -9,11 +10,13 @@ export class ProductImageDto{
   @IsOptional()@IsInt()@Min(0)sortOrder?:number;
 }
 export class ProductVariantDto{
+  @IsOptional()@IsUUID()id?:string;
   @IsString()@MaxLength(255)titleAr!:string;
   @IsOptional()@IsString()@MaxLength(255)titleEn?:string;
   @IsOptional()@IsString()@MaxLength(100)sku?:string;
   @IsOptional()@IsString()@MaxLength(100)barcode?:string;
   @IsOptional()@IsObject()attributes?:Record<string,string>;
+  @IsOptional()@IsArray()@IsUUID('4',{each:true})attributeValueIds?:string[];
   @IsOptional()@IsBoolean()isDefault?:boolean;
   @IsOptional()@IsBoolean()isActive?:boolean;
   @IsOptional()@IsInt()@Min(0)sortOrder?:number;
@@ -23,8 +26,8 @@ export class ProductFilterRangeDto{
   @IsNumber({maxDecimalPlaces:3})value!:number;
 }
 export class CreateProductDto{
-  @IsOptional()@IsUUID()categoryId?:string;
-  @IsOptional()@IsUUID()brandId?:string;
+  @IsOptional()@IsUUID()categoryId?:string|null;
+  @IsOptional()@IsUUID()brandId?:string|null;
   @IsString()@MaxLength(255)titleAr!:string;
   @IsOptional()@IsString()@MaxLength(255)titleEn?:string;
   @IsString()@MaxLength(255)slug!:string;
