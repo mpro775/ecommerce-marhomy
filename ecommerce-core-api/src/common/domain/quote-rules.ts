@@ -4,8 +4,9 @@ export type QuoteStatus=typeof QUOTE_STATUSES[number];
 const transitions:Record<QuoteStatus,readonly QuoteStatus[]>={
   new:['in_review','cancelled'],in_review:['contacted','rejected','cancelled'],contacted:['quote_sent','rejected','cancelled'],
   quote_sent:['accepted','rejected','cancelled'],accepted:['closed'],rejected:['closed'],cancelled:['closed'],closed:[]};
+export function allowedStatusTransitions(current:QuoteStatus):readonly QuoteStatus[]{return transitions[current];}
 export function assertStatusTransition(current:QuoteStatus,next:QuoteStatus):void{
-  if(!transitions[current].includes(next))throw new BadRequestException('Status transition from '+current+' to '+next+' is not allowed');
+  if(!allowedStatusTransitions(current).includes(next))throw new BadRequestException('Status transition from '+current+' to '+next+' is not allowed');
 }
 export function assertQuoteQuantity(quantity:number,minimum:number,maximum:number|null,step:number):void{
   if(!Number.isFinite(quantity)||quantity<=0)throw new BadRequestException('Quantity must be greater than zero');

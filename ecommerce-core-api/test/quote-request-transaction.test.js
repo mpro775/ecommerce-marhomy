@@ -14,3 +14,19 @@ test('submission stores snapshots, closes cart, creates history and durable even
 test('public tracking requires both request number and an opaque token',()=>{
   assert.match(service,/request_number=\$1 AND public_token=\$2/);
 });
+test('contact upsert and request year are concurrency and timezone safe',()=>{
+  assert.match(service,/ON CONFLICT\(phone\) DO UPDATE/);
+  assert.match(service,/APP_TIMEZONE/);assert.match(service,/timezone\(\$1,CURRENT_TIMESTAMP\)/);
+  assert.doesNotMatch(service,/getUTCFullYear/);
+});
+test('note side effects share one database transaction',()=>{
+  const noteMethod=service.slice(service.indexOf('async note('),service.indexOf('async history('));
+  assert.match(noteMethod,/database\.transaction/);assert.doesNotMatch(noteMethod,/this\.database\.query/);
+  for(const table of ['quote_request_notes','notifications','notification_recipients','notification_deliveries','audit_logs'])
+    assert.match(noteMethod,new RegExp(table));
+});
+test('export query has no pagination limit and details expose allowed transitions',()=>{
+  const exportMethod=service.slice(service.indexOf('async exportWorkbook('),service.indexOf('async contacts('));
+  assert.doesNotMatch(exportMethod,/pageSize|LIMIT|OFFSET/);
+  assert.match(service,/allowedTransitions:allowedStatusTransitions/);
+});

@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes } from 'node:crypto';
 import { DatabaseService, DbExecutor } from '../database/database.service';
-import { assertQuoteQuantity, assertSpamSafe, assertStatusTransition, QuoteStatus, sanitizeText } from '../common/domain/quote-rules';
+import { allowedStatusTransitions, assertQuoteQuantity, assertSpamSafe, assertStatusTransition, QuoteStatus, sanitizeText } from '../common/domain/quote-rules';
 import type { RequestContext } from '../common/utils/request-context';
 import type { AuthUser } from '../auth/auth.types';
 import type { CreateQuoteNoteDto, ListQuoteRequestsQuery, SubmitQuoteRequestDto, UpdateAssigneeDto, UpdateContactDto, UpdateQuoteStatusDto } from './dto';
@@ -42,19 +42,16 @@ export class QuoteRequestsService{
       for(const item of itemsResult.rows)this.validateItem(item);
       const phone=this.normalizePhone(input.phone);
       const email=input.email?.toLowerCase()??null;
-      const existingContact=await client.query<{id:string}>(`SELECT id FROM contacts
-        WHERE phone=$1 OR ($2::text IS NOT NULL AND LOWER(email)=LOWER($2))
-        ORDER BY CASE WHEN phone=$1 THEN 0 ELSE 1 END LIMIT 1 FOR UPDATE`,[phone,email]);
-      const contact=existingContact.rows[0]
-        ?await client.query<{id:string}>(`UPDATE contacts SET full_name=$2,phone=$3,email=COALESCE($4,email),
-          company_name=COALESCE($5,company_name),city=COALESCE($6,city),
-          preferred_contact_method=COALESCE($7,preferred_contact_method),last_request_at=NOW(),updated_at=NOW()
-          WHERE id=$1 RETURNING id`,[existingContact.rows[0].id,sanitizeText(input.fullName,200),phone,email,
-          sanitizeText(input.companyName,255),sanitizeText(input.city,150),input.preferredContactMethod??null])
-        :await client.query<{id:string}>(`INSERT INTO contacts(full_name,phone,email,company_name,city,preferred_contact_method,first_request_at,last_request_at)
-          VALUES($1,$2,$3,$4,$5,$6,NOW(),NOW()) RETURNING id`,[sanitizeText(input.fullName,200),phone,email,
-          sanitizeText(input.companyName,255),sanitizeText(input.city,150),input.preferredContactMethod??null]);
-      const year=new Date().getUTCFullYear();const sequence=await client.query<{last_value:number}>(`INSERT INTO quote_request_sequences(request_year,last_value)
+      const contact=await client.query<{id:string}>(`INSERT INTO contacts(full_name,phone,email,company_name,city,preferred_contact_method,first_request_at,last_request_at)
+        VALUES($1,$2,$3,$4,$5,$6,NOW(),NOW()) ON CONFLICT(phone) DO UPDATE SET
+        full_name=EXCLUDED.full_name,email=COALESCE(EXCLUDED.email,contacts.email),
+        company_name=COALESCE(EXCLUDED.company_name,contacts.company_name),city=COALESCE(EXCLUDED.city,contacts.city),
+        preferred_contact_method=COALESCE(EXCLUDED.preferred_contact_method,contacts.preferred_contact_method),
+        last_request_at=NOW(),updated_at=NOW() RETURNING id`,[sanitizeText(input.fullName,200),phone,email,
+        sanitizeText(input.companyName,255),sanitizeText(input.city,150),input.preferredContactMethod??null]);
+      const timezone=this.config.get<string>('APP_TIMEZONE','Asia/Aden');
+      const yearResult=await client.query<{year:number}>(`SELECT date_part('year',timezone($1,CURRENT_TIMESTAMP))::int AS year`,[timezone]);
+      const year=yearResult.rows[0].year;const sequence=await client.query<{last_value:number}>(`INSERT INTO quote_request_sequences(request_year,last_value)
         VALUES($1,1) ON CONFLICT(request_year) DO UPDATE SET last_value=quote_request_sequences.last_value+1 RETURNING last_value`,[year]);
       const requestNumber=this.config.get<string>('QUOTE_REQUEST_PREFIX','RFQ')+'-'+year+'-'+String(sequence.rows[0].last_value).padStart(6,'0');
       const trackingToken=randomBytes(32).toString('base64url');const submittedAt=new Date().toISOString();
@@ -113,7 +110,9 @@ export class QuoteRequestsService{
       COALESCE((SELECT json_agg(jsonb_build_object('id',n.id,'content',n.content,'created_at',n.created_at,'admin_user_id',n.admin_user_id,'admin_name',a.full_name)
         ORDER BY n.created_at) FROM quote_request_notes n LEFT JOIN admin_users a ON a.id=n.admin_user_id WHERE n.quote_request_id=q.id),'[]') AS notes
       FROM quote_requests q LEFT JOIN admin_users u ON u.id=q.assigned_to_admin_user_id WHERE q.id=$1`,[id]);
-    if(!result.rows[0])throw new NotFoundException('Quote request not found');return result.rows[0];
+    const request=result.rows[0] as({status:QuoteStatus}&Record<string,unknown>)|undefined;
+    if(!request)throw new NotFoundException('Quote request not found');
+    return{...request,allowedTransitions:allowedStatusTransitions(request.status)};
   }
   async updateStatus(id:string,input:UpdateQuoteStatusDto,user:AuthUser):Promise<unknown>{
     return this.database.transaction(async(client)=>{
@@ -154,27 +153,37 @@ export class QuoteRequestsService{
   }
   async note(id:string,input:CreateQuoteNoteDto,user:AuthUser):Promise<unknown>{
     const content=sanitizeText(input.content,3000);if(!content)throw new BadRequestException('Note is empty');
-    const result=await this.database.query(`INSERT INTO quote_request_notes(quote_request_id,admin_user_id,content)
-      SELECT $1,$2,$3 WHERE EXISTS(SELECT 1 FROM quote_requests WHERE id=$1) RETURNING *`,[id,user.id,content]);
-    if(!result.rows[0])throw new NotFoundException('Quote request not found');
-    const notification=await this.database.query<{id:string}>(`INSERT INTO notifications(type,title,body,entity_type,entity_id)
-      VALUES('quote_request_note_added','Internal note added','A note was added to a quote request','quote_request',$1) RETURNING id`,[id]);
-    await this.database.query(`INSERT INTO notification_recipients(notification_id,admin_user_id) SELECT $1,id FROM admin_users WHERE is_active=TRUE AND deleted_at IS NULL`,[notification.rows[0].id]);
-    await this.database.query(`INSERT INTO notification_deliveries(notification_id,channel,status) VALUES($1,'in_app','sent')`,[notification.rows[0].id]);
-    await this.database.query(`INSERT INTO audit_logs(admin_user_id,action,entity_type,entity_id,metadata)
-      VALUES($1,'quote_request.note_added','quote_request',$2,$3)`,[user.id,id,{noteId:result.rows[0].id}]);
-    return result.rows[0];
+    return this.database.transaction(async(client)=>{
+      const result=await client.query(`INSERT INTO quote_request_notes(quote_request_id,admin_user_id,content)
+        SELECT $1,$2,$3 WHERE EXISTS(SELECT 1 FROM quote_requests WHERE id=$1) RETURNING *`,[id,user.id,content]);
+      if(!result.rows[0])throw new NotFoundException('Quote request not found');
+      const notification=await client.query<{id:string}>(`INSERT INTO notifications(type,title,body,entity_type,entity_id)
+        VALUES('quote_request_note_added','Internal note added','A note was added to a quote request','quote_request',$1) RETURNING id`,[id]);
+      await client.query(`INSERT INTO notification_recipients(notification_id,admin_user_id) SELECT $1,id FROM admin_users WHERE is_active=TRUE AND deleted_at IS NULL`,[notification.rows[0].id]);
+      await client.query(`INSERT INTO notification_deliveries(notification_id,channel,status) VALUES($1,'in_app','sent')`,[notification.rows[0].id]);
+      await client.query(`INSERT INTO audit_logs(admin_user_id,action,entity_type,entity_id,metadata)
+        VALUES($1,'quote_request.note_added','quote_request',$2,$3)`,[user.id,id,{noteId:result.rows[0].id}]);
+      return result.rows[0];
+    });
   }
   async history(id:string):Promise<unknown[]>{return(await this.database.query(`SELECT h.*,u.full_name AS changed_by_name
     FROM quote_request_status_history h LEFT JOIN admin_users u ON u.id=h.changed_by_admin_user_id
     WHERE h.quote_request_id=$1 ORDER BY h.created_at`,[id])).rows;}
   async exportWorkbook(query:ListQuoteRequestsQuery):Promise<Buffer>{
-    const list=await this.list({...query,page:1,pageSize:100});
+    const values:unknown[]=[];const where:string[]=[];
+    if(query.status){values.push(query.status);where.push('q.status=$'+values.length);}
+    if(query.search){values.push('%'+query.search+'%');where.push('(q.request_number ILIKE $'+values.length+' OR q.phone ILIKE $'+values.length+' OR q.full_name ILIKE $'+values.length+')');}
+    if(query.assigneeId){values.push(query.assigneeId);where.push('q.assigned_to_admin_user_id=$'+values.length);}
+    const clause=where.length?'WHERE '+where.join(' AND '):'';
+    const result=await this.database.query(`SELECT q.*,u.full_name AS assignee_name,
+      (SELECT COUNT(*)::int FROM quote_request_items WHERE quote_request_id=q.id) AS item_count
+      FROM quote_requests q LEFT JOIN admin_users u ON u.id=q.assigned_to_admin_user_id `+clause+
+      ' ORDER BY q.created_at DESC',values);
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet('Quote Requests');
-    if (list.items.length > 0) {
-      sheet.columns = Object.keys(list.items[0] as object).map(key => ({ header: key, key }));
-      sheet.addRows(list.items);
+    if (result.rows.length > 0) {
+      sheet.columns = Object.keys(result.rows[0]).map(key => ({ header: key, key }));
+      sheet.addRows(result.rows);
     }
     const buffer = await workbook.xlsx.writeBuffer();
     return Buffer.from(buffer);

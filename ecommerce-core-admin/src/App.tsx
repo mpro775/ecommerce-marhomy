@@ -104,7 +104,7 @@ function RequestDialog({id,close,changed}:{id:string;close:()=>void;changed:()=>
   return <div className="dialog-backdrop"><div className="dialog"><div className="dialog-head"><h2>{data.request_number??'تفاصيل الطلب'}</h2><button className="close" onClick={close}>×</button></div>
     {error&&<div className="error">{error}</div>}{loading?<Empty loading/>:<><div className="cards"><div className="card"><span className="muted">الحالة</span><h3>{statusLabels[data.status]}</h3></div>
       <div className="card"><span className="muted">جهة الاتصال</span><h3>{data.full_name}</h3><div>{data.phone}</div></div><div className="card"><span className="muted">المدينة</span><h3>{data.city||'—'}</h3></div></div>
-      <div className="toolbar"><select value={data.status} onChange={e=>void setStatus(e.target.value)}>{Object.entries(statusLabels).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select>
+      <div className="toolbar"><select value={data.status} onChange={e=>void setStatus(e.target.value)}>{[data.status,...(data.allowedTransitions??[])].map((key:string)=><option key={key} value={key}>{statusLabels[key]??key}</option>)}</select>
         <select value={data.assigned_to_admin_user_id??''} onChange={e=>void assign(e.target.value)}><option value="">غير معين</option>{users.map(user=><option key={user.id} value={user.id}>{user.full_name}</option>)}</select></div>
       <div className="grid-two"><div className="panel"><h3>العناصر وقت الإرسال</h3><div className="request-items">{(data.items??[]).map((item:Row)=><div className="request-item" key={item.id}>
         {item.image_url_snapshot&&<img src={item.image_url_snapshot} alt=""/>}<div><strong>{item.product_title_snapshot}</strong><div>{item.variant_title_snapshot}</div>

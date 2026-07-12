@@ -17,3 +17,7 @@ test('public app includes bilingual responsive cart and successful submission fl
     assert.ok(storefront.includes(phrase));
   for(const fragment of ['curr'+'ency','sub'+'total','dis'+'count','t'+'ax','pay'+'ment'])assert.equal(storefront.includes(fragment),false);
 });
+test('admin status selector uses the transitions allowed by the API',()=>{
+  const admin=content(path.resolve(__dirname,'../../ecommerce-core-admin/src'));
+  assert.ok(admin.includes('data.allowedtransitions'));
+});
