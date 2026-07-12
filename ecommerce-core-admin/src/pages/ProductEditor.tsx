@@ -59,10 +59,14 @@ export function ProductEditor({product,close,saved}:{product:Row;close:()=>void;
   const selectAttribute=(variantIndex:number,attribute:Row,valueId:string)=>{const variant=variants[variantIndex];if(!variant)return;const valueIds=new Set((variant.attributeValueIds??[]).filter(id=>!(attribute.values??[]).some((v:Row)=>v.id===id)));
     if(valueId)valueIds.add(valueId);updateVariant(variantIndex,{attributeValueIds:[...valueIds]});};
   const submit=async(event:FormEvent)=>{event.preventDefault();setError('');setSaving(true);try{
-    const body={...form,categoryId:form.categoryId||null,brandId:form.brandId||null,youtubeUrl:form.youtubeUrl||undefined,
-      maximumRequestQuantity:form.maximumRequestQuantity===''?undefined:Number(form.maximumRequestQuantity),tags:String(form.tags).split(',').map((v:string)=>v.trim()).filter(Boolean),
+    const nullable=(value:unknown)=>value===''?null:value;const body={...form,categoryId:form.categoryId||null,brandId:form.brandId||null,
+      titleEn:nullable(form.titleEn),shortDescriptionAr:nullable(form.shortDescriptionAr),shortDescriptionEn:nullable(form.shortDescriptionEn),
+      detailedDescriptionAr:nullable(form.detailedDescriptionAr),detailedDescriptionEn:nullable(form.detailedDescriptionEn),modelCode:nullable(form.modelCode),
+      sku:nullable(form.sku),barcode:nullable(form.barcode),youtubeUrl:nullable(form.youtubeUrl),seoTitleAr:nullable(form.seoTitleAr),seoTitleEn:nullable(form.seoTitleEn),
+      seoDescriptionAr:nullable(form.seoDescriptionAr),seoDescriptionEn:nullable(form.seoDescriptionEn),
+      maximumRequestQuantity:form.maximumRequestQuantity===''?(product.id?null:undefined):Number(form.maximumRequestQuantity),tags:String(form.tags).split(',').map((v:string)=>v.trim()).filter(Boolean),
       specifications:Object.fromEntries(specs.filter(item=>item.key.trim()).map(item=>[item.key.trim(),item.value])),
-      images:images.map((image,index)=>({...image,sortOrder:index})),variants:variants.map((variant,index)=>({...variant,sortOrder:index})),
+      images:images.map((image,index)=>({...image,sortOrder:index})),variants:variants.map((variant,index)=>({...variant,titleEn:nullable(variant.titleEn),sku:nullable(variant.sku),barcode:nullable(variant.barcode),sortOrder:index})),
       filterRanges:form.filterRanges.filter((range:Row)=>Number.isFinite(Number(range.value))).map((range:Row)=>({...range,value:Number(range.value)}))};
     await api(product.id?'/admin/products/'+product.id:'/admin/products',{method:product.id?'PATCH':'POST',body:JSON.stringify(body)});await saved();
   }catch(value){setError((value as Error).message);}finally{setSaving(false);}};

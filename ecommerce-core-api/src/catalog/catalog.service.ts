@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
-import type { CreateCatalogValueDto, UpdateCatalogValueDto, UpsertCatalogEntryDto } from './dto';
+import type { CreateCatalogValueDto, UpdateCatalogEntryDto, UpdateCatalogValueDto, UpsertCatalogEntryDto } from './dto';
 type Kind='categories'|'brands'|'attributes'|'filters';
 @Injectable()
 export class CatalogService{
@@ -56,9 +56,9 @@ export class CatalogService{
     return (await this.database.query(`INSERT INTO filters(name_ar,name_en,slug,filter_type,is_active,sort_order)
       VALUES($1,$2,$3,$4,$5,$6) RETURNING *`,[input.nameAr,input.nameEn??null,input.slug,input.filterType??'option',input.isActive??true,input.sortOrder??0])).rows[0];
   }
-  async update(kind:Kind,id:string,input:UpsertCatalogEntryDto):Promise<unknown>{
+  async update(kind:Kind,id:string,input:UpdateCatalogEntryDto):Promise<unknown>{
     this.assertKind(kind);
-    const columns:{key:keyof UpsertCatalogEntryDto;column:string}[]=[
+    const columns:{key:keyof UpdateCatalogEntryDto;column:string}[]=[
       {key:'parentId',column:'parent_id'},{key:'titleAr',column:'title_ar'},{key:'titleEn',column:'title_en'},
       {key:'slug',column:'slug'},{key:'descriptionAr',column:'description_ar'},{key:'descriptionEn',column:'description_en'},
       {key:'imageUrl',column:'image_url'},{key:'logoUrl',column:'logo_url'},{key:'nameAr',column:'name_ar'},
@@ -83,9 +83,12 @@ export class CatalogService{
   }
   async updateValue(kind:'attributes'|'filters',id:string,valueId:string,input:UpdateCatalogValueDto):Promise<unknown>{
     const table=kind==='attributes'?'attribute_values':'filter_values';const foreign=kind==='attributes'?'attribute_id':'filter_id';
-    const result=await this.database.query(`UPDATE ${table} SET value_ar=$3,value_en=$4,sort_order=$5${kind==='attributes'?',code=$6':''}
-      WHERE id=$1 AND ${foreign}=$2 RETURNING *`,kind==='attributes'?[valueId,id,input.valueAr,input.valueEn??null,input.sortOrder??0,input.code??null]:
-      [valueId,id,input.valueAr,input.valueEn??null,input.sortOrder??0]);
+    const fields:Array<{key:keyof UpdateCatalogValueDto;column:string}>=[{key:'valueAr',column:'value_ar'},{key:'valueEn',column:'value_en'},
+      {key:'sortOrder',column:'sort_order'},...(kind==='attributes'?[{key:'code' as keyof UpdateCatalogValueDto,column:'code'}]:[])];
+    const changes=fields.filter(field=>input[field.key]!==undefined);if(!changes.length)throw new BadRequestException('No supported fields supplied');
+    const assignments=changes.map((field,index)=>field.column+'=$'+(index+3)).join(',');
+    const result=await this.database.query(`UPDATE ${table} SET ${assignments} WHERE id=$1 AND ${foreign}=$2 RETURNING *`,
+      [valueId,id,...changes.map(field=>input[field.key])]);
     if(!result.rows[0])throw new NotFoundException('Catalog value not found');return result.rows[0];
   }
   async removeValue(kind:'attributes'|'filters',id:string,valueId:string):Promise<void>{

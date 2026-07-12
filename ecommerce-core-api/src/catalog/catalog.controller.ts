@@ -4,7 +4,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import type { AuthUser } from '../auth/auth.types';
 import { PermissionsGuard } from '../rbac/permissions.guard';
 import { CatalogService } from './catalog.service';
-import { CreateCatalogValueDto, UpdateCatalogValueDto, UpdateCategoryAttributesDto, UpsertCatalogEntryDto } from './dto';
+import { CreateCatalogValueDto, UpdateCatalogEntryDto, UpdateCatalogValueDto, UpdateCategoryAttributesDto, UpsertCatalogEntryDto } from './dto';
 import { AuditService } from '../audit/audit.service';
 @Controller('catalog')
 export class CatalogController{
@@ -27,7 +27,7 @@ export class AdminCatalogController{
     this.assertPermission(user,kind,'write');const result=await this.catalog.create(kind,body) as {id:string};
     await this.audit.log({adminUserId:user.id,action:'catalog.created',entityType:kind,entityId:result.id});return result;}
   @Patch(':kind/:id')
-  async update(@Param('kind')kind:'categories'|'brands'|'attributes'|'filters',@Param('id')id:string,@Body()body:UpsertCatalogEntryDto,@CurrentUser()user:AuthUser):Promise<unknown>{
+  async update(@Param('kind')kind:'categories'|'brands'|'attributes'|'filters',@Param('id')id:string,@Body()body:UpdateCatalogEntryDto,@CurrentUser()user:AuthUser):Promise<unknown>{
     this.assertPermission(user,kind,'write');const result=await this.catalog.update(kind,id,body);
     await this.audit.log({adminUserId:user.id,action:'catalog.updated',entityType:kind,entityId:id});return result;}
   @Delete(':kind/:id')

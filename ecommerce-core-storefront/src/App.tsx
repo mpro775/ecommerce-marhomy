@@ -49,7 +49,7 @@ function Header({lang,setLang,page,navigate,menu,setMenu,count}:{lang:Lang;setLa
       <button onClick={()=>setLang(lang==='ar'?'en':'ar')}>{lang==='ar'?'English':'العربية'}</button>
       <button className="cart-button" onClick={()=>navigate({name:'cart'})}>{t.cart} ({count})</button></nav></div></header>;
 }
-function Home({lang,navigate,add}:{lang:Lang;navigate:(page:Page)=>void;add:(product:Row,quantity:number)=>Promise<void>}){
+function Home({lang,navigate,add}:{lang:Lang;navigate:(page:Page)=>void;add:(product:Row,quantity:number,variantId?:string)=>Promise<void>}){
   const t=text[lang];const[products,setProducts]=useState<Row[]>([]),[categories,setCategories]=useState<Row[]>([]);
   useEffect(()=>{api<{items:Row[]}>('/catalog/products?featured=true&pageSize=6').then(value=>setProducts(value.items));api<Row[]>('/catalog/categories').then(setCategories);},[]);
   return <><section className="hero"><div className="container hero-grid"><div><span className="eyebrow">{lang==='ar'?brandConfig.taglineAr:brandConfig.taglineEn}</span><h1>{t.hero}</h1>
@@ -63,17 +63,19 @@ function Home({lang,navigate,add}:{lang:Lang;navigate:(page:Page)=>void;add:(pro
       <div className="product-grid">{categories.slice(0,6).map(category=><button className="panel" style={{textAlign:'start',cursor:'pointer'}} key={category.id}
         onClick={()=>navigate({name:'catalog',key:category.slug})}><h3>{title(category,lang)}</h3><p className="muted">{lang==='ar'?category.description_ar:category.description_en}</p></button>)}</div></div></section></>;
 }
-function ProductGrid({products,lang,navigate,add}:{products:Row[];lang:Lang;navigate:(page:Page)=>void;add:(product:Row,quantity:number)=>Promise<void>}){
+function ProductGrid({products,lang,navigate,add}:{products:Row[];lang:Lang;navigate:(page:Page)=>void;add:(product:Row,quantity:number,variantId?:string)=>Promise<void>}){
   const t=text[lang];const[message,setMessage]=useState('');
   if(!products.length)return <div className="empty">{t.empty}</div>;
   return <><div className="product-grid">{products.map(product=><article className="product-card" key={product.id}><div className="product-image">
     {product.primary_image_url?<img src={product.primary_image_url} alt={title(product,lang)}/>:<span>RFQ</span>}</div><div className="product-body">
       <span className="availability">{(t as any)[product.availability_status]??product.availability_status}</span><h3>{title(product,lang)}</h3>
       <p className="muted">{description(product,lang)}</p><div className="product-actions"><button className="button secondary" onClick={()=>navigate({name:'product',slug:product.slug})}>{t.details}</button>
-      <button className="button" disabled={!product.quote_enabled||product.availability_status==='discontinued'} onClick={async()=>{try{await add(product,Number(product.minimum_request_quantity??1));setMessage(lang==='ar'?'تمت الإضافة إلى السلة.':'Added to quote cart.');}catch(value){setMessage((value as Error).message);}}}>{t.add}</button></div></div></article>)}</div>
+      <button className="button" disabled={!product.quote_enabled||product.availability_status==='discontinued'} onClick={async()=>{const count=Number(product.active_variant_count??0);
+        if(count>0&&!(count===1&&product.active_default_variant_id)){navigate({name:'product',slug:product.slug});return;}
+        try{await add(product,Number(product.minimum_request_quantity??1),product.active_default_variant_id??undefined);setMessage(lang==='ar'?'تمت الإضافة إلى السلة.':'Added to quote cart.');}catch(value){setMessage((value as Error).message);}}}>{t.add}</button></div></div></article>)}</div>
     {message&&<div className="notice" style={{position:'fixed',bottom:20,left:20,zIndex:20}}>{message}</div>}</>;
 }
-function Catalog({lang,navigate,add,initialCategory}:{lang:Lang;navigate:(page:Page)=>void;add:(product:Row,quantity:number)=>Promise<void>;initialCategory:string}){
+function Catalog({lang,navigate,add,initialCategory}:{lang:Lang;navigate:(page:Page)=>void;add:(product:Row,quantity:number,variantId?:string)=>Promise<void>;initialCategory:string}){
   const t=text[lang];const[search,setSearch]=useState(''),[category,setCategory]=useState(initialCategory),[brand,setBrand]=useState('');
   const[products,setProducts]=useState<Row[]>([]),[categories,setCategories]=useState<Row[]>([]),[brands,setBrands]=useState<Row[]>([]);
   const[filters,setFilters]=useState<Row[]>([]),[selectedFilters,setSelectedFilters]=useState<Record<string,string>>({});
@@ -96,10 +98,10 @@ function Catalog({lang,navigate,add,initialCategory}:{lang:Lang;navigate:(page:P
 function Product({lang,slug,navigate,add}:{lang:Lang;slug:string;navigate:(page:Page)=>void;add:(product:Row,quantity:number,variantId?:string,note?:string)=>Promise<void>}){
   const t=text[lang];const[product,setProduct]=useState<Row|null>(null),[related,setRelated]=useState<Row[]>([]),[image,setImage]=useState(''),[variant,setVariant]=useState(''),[quantity,setQuantity]=useState(1),[note,setNote]=useState(''),[message,setMessage]=useState('');
   useEffect(()=>{api<Row>('/catalog/products/'+slug).then(value=>{setProduct(value);setImage(value.images?.[0]?.image_url??'');setQuantity(Number(value.minimum_request_quantity??1));
-    setVariant(value.variants?.find((item:Row)=>item.is_default)?.id??'');void track('product_viewed',{productId:value.id});
+    const activeVariants=(value.variants??[]).filter((item:Row)=>item.is_active);setVariant(activeVariants.length===1&&activeVariants[0].is_default?activeVariants[0].id:'');void track('product_viewed',{productId:value.id});
     api<Row[]>('/catalog/products/'+value.id+'/related').then(setRelated).catch(()=>setRelated([]));});},[slug]);
   if(!product)return <div className="empty">{lang==='ar'?'جارٍ التحميل…':'Loading…'}</div>;
-  const specs=Object.entries(product.specifications??{});return <main className="container detail"><div><div className="gallery-main">{image?<img src={image} alt={title(product,lang)}/>:<span>RFQ</span>}</div>
+  const specs=Object.entries(product.specifications??{}),activeVariants=(product.variants??[]).filter((item:Row)=>item.is_active);return <main className="container detail"><div><div className="gallery-main">{image?<img src={image} alt={title(product,lang)}/>:<span>RFQ</span>}</div>
     <div className="thumbs">{(product.images??[]).map((item:Row)=><button className={'thumb '+(image===item.image_url?'active':'')} key={item.id} onClick={()=>setImage(item.image_url)}>
       <img src={item.image_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/></button>)}</div></div><div>
     <span className="availability">{(t as any)[product.availability_status]}</span><h1>{title(product,lang)}</h1><p className="muted">{description(product,lang)}</p>
@@ -109,11 +111,11 @@ function Product({lang,slug,navigate,add}:{lang:Lang;slug:string;navigate:(page:
     <p style={{lineHeight:1.9}}>{lang==='ar'?product.detailed_description_ar:product.detailed_description_en||product.detailed_description_ar}</p>
     {product.youtube_url&&<p><a className="button secondary" href={product.youtube_url} target="_blank" rel="noreferrer">{lang==='ar'?'فيديو المنتج':'Product video'}</a></p>}
     {specs.length>0&&<><h3>{lang==='ar'?'المواصفات':'Specifications'}</h3><table className="specs"><tbody>{specs.map(([key,value])=><tr key={key}><td><strong>{key}</strong></td><td>{String(value)}</td></tr>)}</tbody></table></>}
-    <div className="quote-box">{product.variants?.length>0&&<label className="field"><label>{lang==='ar'?'الخيار':'Option'}</label><select value={variant} onChange={e=>setVariant(e.target.value)}>
-      <option value="">{lang==='ar'?'اختر':'Choose'}</option>{product.variants.filter((item:Row)=>item.is_active).map((item:Row)=><option key={item.id} value={item.id}>{title(item,lang)}</option>)}</select></label>}
+    <div className="quote-box">{activeVariants.length>0&&<label className="field"><label>{lang==='ar'?'الخيار':'Option'}</label><select value={variant} onChange={e=>setVariant(e.target.value)}>
+      <option value="">{lang==='ar'?'اختر':'Choose'}</option>{activeVariants.map((item:Row)=><option key={item.id} value={item.id}>{title(item,lang)}</option>)}</select></label>}
       <div className="form-grid"><label className="field"><label>{t.quantity} ({product.unit_of_measure})</label><input type="number" min={product.minimum_request_quantity} max={product.maximum_request_quantity??undefined}
         step={product.quantity_step} value={quantity} onChange={e=>setQuantity(Number(e.target.value))}/></label><label className="field"><label>{t.note}</label><input value={note} onChange={e=>setNote(e.target.value)}/></label></div>
-      {message&&<div className={message.startsWith('تم')||message.startsWith('Added')?'notice':'error'}>{message}</div>}<button className="button" style={{marginTop:14}} onClick={async()=>{try{await add(product,quantity,variant||undefined,note);setMessage(lang==='ar'?'تمت الإضافة إلى طلب العرض.':'Added to quote request.');}catch(value){setMessage((value as Error).message);}}}>{t.add}</button></div>
+      {message&&<div className={message.startsWith('تم')||message.startsWith('Added')?'notice':'error'}>{message}</div>}<button className="button" disabled={activeVariants.length>0&&!variant} style={{marginTop:14}} onClick={async()=>{try{await add(product,quantity,variant||undefined,note);setMessage(lang==='ar'?'تمت الإضافة إلى طلب العرض.':'Added to quote request.');}catch(value){setMessage((value as Error).message);}}}>{t.add}</button></div>
     {related.length>0&&<div className="panel" style={{marginTop:18}}><h3>{lang==='ar'?'منتجات مرتبطة':'Related products'}</h3>{related.map(item=>
       <button key={item.id} style={{display:'block',border:0,background:'none',padding:'8px 0',color:'#0f5f73'}} onClick={()=>navigate({name:'product',slug:item.slug})}>{title(item,lang)}</button>)}</div>}</div></main>;
 }

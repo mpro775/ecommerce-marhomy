@@ -32,18 +32,18 @@ export class QuoteCartsService{
   async add(token:string,input:AddQuoteCartItemDto):Promise<unknown>{
     return this.database.transaction(async(client)=>{
       const {cart}=await this.get(token,client,true);this.assertOpen(cart);
-      const product=await this.productRules(client,input.productId);await this.assertSelectableVariant(client,product.id,input.variantId);
+      const product=await this.productRules(client,input.productId);const variantId=await this.resolveSelectableVariant(client,product.id,input.variantId);
       this.validateQuantity(product,input.quantity);
       const selected=input.selectedOptions??{};const existing=await client.query<{id:string;quantity:string}>(`SELECT id,quantity FROM quote_cart_items
         WHERE quote_cart_id=$1 AND product_id=$2 AND variant_id IS NOT DISTINCT FROM $3 AND selected_options=$4::jsonb`,
-        [cart.id,input.productId,input.variantId??null,selected]);
+        [cart.id,input.productId,variantId??null,selected]);
       let item;
       if(existing.rows[0]){
         const quantity=Number(existing.rows[0].quantity)+input.quantity;this.validateQuantity(product,quantity);
         item=(await client.query(`UPDATE quote_cart_items SET quantity=$2,item_note=COALESCE($3,item_note),updated_at=NOW()
           WHERE id=$1 RETURNING *`,[existing.rows[0].id,quantity,sanitizeText(input.itemNote,1000)])).rows[0];
       }else item=(await client.query(`INSERT INTO quote_cart_items(quote_cart_id,product_id,variant_id,quantity,unit_snapshot,selected_options,item_note)
-        VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`,[cart.id,input.productId,input.variantId??null,input.quantity,product.unit_of_measure,
+        VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`,[cart.id,input.productId,variantId??null,input.quantity,product.unit_of_measure,
         selected,sanitizeText(input.itemNote,1000)])).rows[0];
       await this.event('quote_item_added',{quoteCartId:cart.id,productId:product.id,quantity:input.quantity},client);return item;
     });
@@ -73,9 +73,13 @@ export class QuoteCartsService{
     if(product.status!=='published'||!product.quote_enabled||['temporarily_unavailable','discontinued'].includes(product.availability_status))
       throw new BadRequestException('Product is not available for quote requests');return product;
   }
-  private async assertSelectableVariant(db:DbExecutor,productId:string,variantId?:string):Promise<void>{
-    if(!variantId)return;const result=await db.query('SELECT id FROM product_variants WHERE id=$1 AND product_id=$2 AND is_active=TRUE',[variantId,productId]);
-    if(!result.rows[0])throw new BadRequestException('Variant is not active for this product');
+  private async resolveSelectableVariant(db:DbExecutor,productId:string,variantId?:string):Promise<string|undefined>{
+    if(variantId){const result=await db.query<{id:string}>('SELECT id FROM product_variants WHERE id=$1 AND product_id=$2 AND is_active=TRUE',[variantId,productId]);
+      if(!result.rows[0])throw new BadRequestException('Variant is not active for this product');return result.rows[0].id;}
+    const active=await db.query<{id:string;is_default:boolean}>('SELECT id,is_default FROM product_variants WHERE product_id=$1 AND is_active=TRUE ORDER BY is_default DESC,sort_order',[productId]);
+    if(active.rows.length===0)return undefined;
+    if(active.rows.length===1&&active.rows[0].is_default)return active.rows[0].id;
+    throw new BadRequestException('An active product variant must be selected');
   }
   private validateQuantity(product:ProductRuleRow,quantity:number):void{assertQuoteQuantity(quantity,Number(product.minimum_request_quantity),
     product.maximum_request_quantity===null?null:Number(product.maximum_request_quantity),Number(product.quantity_step));}

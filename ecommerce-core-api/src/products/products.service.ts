@@ -1,6 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { plainToInstance } from 'class-transformer';
+import { validateSync } from 'class-validator';
 import { DatabaseService, DbExecutor } from '../database/database.service';
-import type { CreateProductDto, ListProductsQuery, ProductFilterRangeDto, ProductImageDto, ProductVariantDto, UpdateProductDto } from './dto';
+import { CreateProductDto } from './dto';
+import type { ListProductsQuery, ProductFilterRangeDto, ProductImageDto, ProductVariantDto, UpdateProductDto } from './dto';
 import * as ExcelJS from 'exceljs';
 interface ProductIdRow{id:string}
 @Injectable()
@@ -22,7 +25,9 @@ export class ProductsService{
     values.push(pageSize,(page-1)*pageSize);
     const result=await this.database.query(`SELECT p.*,c.title_ar AS category_title_ar,c.title_en AS category_title_en,c.slug AS category_slug,
       b.title_ar AS brand_title_ar,b.title_en AS brand_title_en,b.slug AS brand_slug,
-      (SELECT image_url FROM product_images WHERE product_id=p.id ORDER BY is_primary DESC,sort_order LIMIT 1) AS primary_image_url
+      (SELECT image_url FROM product_images WHERE product_id=p.id ORDER BY is_primary DESC,sort_order LIMIT 1) AS primary_image_url,
+      (SELECT COUNT(*)::int FROM product_variants WHERE product_id=p.id AND is_active=TRUE) AS active_variant_count,
+      (SELECT id FROM product_variants WHERE product_id=p.id AND is_active=TRUE AND is_default=TRUE LIMIT 1) AS active_default_variant_id
       FROM products p LEFT JOIN categories c ON c.id=p.category_id LEFT JOIN brands b ON b.id=p.brand_id
       WHERE `+clause+' ORDER BY p.is_featured DESC,p.sort_order,p.created_at DESC LIMIT $'+(values.length-1)+' OFFSET $'+values.length,values);
     return{items:result.rows,count:Number(countResult.rows[0]?.count??0),page,pageSize};
@@ -41,13 +46,14 @@ export class ProductsService{
   }
   async adminById(id:string):Promise<unknown>{const product=await this.findOne('p.id=$1',[id]);if(!product)throw new NotFoundException('Product not found');return product;}
   async create(input:CreateProductDto):Promise<unknown>{
-    this.validate(input);
     return this.database.transaction((client)=>this.createWithExecutor(client,input));
   }
   async update(id:string,input:UpdateProductDto):Promise<unknown>{
-    this.validate(input);return this.database.transaction(async(client)=>{
+    return this.database.transaction(async(client)=>{
       const current=await client.query('SELECT * FROM products WHERE id=$1',[id]);if(!current.rows[0])throw new NotFoundException('Product not found');
       const merged=this.fromRow(current.rows[0] as Record<string,unknown>,input);
+      if(input.images!==undefined)merged.images=input.images;if(input.variants!==undefined)merged.variants=input.variants;
+      this.validateDto(merged);this.validate(merged);
       await client.query(`UPDATE products SET category_id=$2,brand_id=$3,title_ar=$4,title_en=$5,slug=$6,short_description_ar=$7,
         short_description_en=$8,detailed_description_ar=$9,detailed_description_en=$10,model_code=$11,sku=$12,barcode=$13,youtube_url=$14,
         tags=$15,is_featured=$16,status=$17,published_at=CASE WHEN $17='published' THEN COALESCE(published_at,NOW()) ELSE published_at END,
@@ -154,20 +160,24 @@ export class ProductsService{
     if((input.images?.filter((image)=>image.isPrimary).length??0)>1)throw new BadRequestException('Only one primary image is allowed');
     if((input.variants?.filter((variant)=>variant.isDefault).length??0)>1)throw new BadRequestException('Only one default variant is allowed');
   }
+  private validateDto(input:CreateProductDto):void{
+    const errors=validateSync(plainToInstance(CreateProductDto,input));
+    if(errors.length)throw new BadRequestException(errors.flatMap(error=>Object.values(error.constraints??{})));
+  }
   private fromRow(row:Record<string,unknown>,input:UpdateProductDto):CreateProductDto{
     const get=(key:keyof UpdateProductDto,column:string)=>input[key]===undefined?row[column]:input[key];
     return{categoryId:get('categoryId','category_id') as string|null|undefined,brandId:get('brandId','brand_id') as string|null|undefined,
-      titleAr:get('titleAr','title_ar') as string,titleEn:get('titleEn','title_en') as string|undefined,slug:get('slug','slug') as string,
-      shortDescriptionAr:get('shortDescriptionAr','short_description_ar') as string|undefined,shortDescriptionEn:get('shortDescriptionEn','short_description_en') as string|undefined,
-      detailedDescriptionAr:get('detailedDescriptionAr','detailed_description_ar') as string|undefined,detailedDescriptionEn:get('detailedDescriptionEn','detailed_description_en') as string|undefined,
-      modelCode:get('modelCode','model_code') as string|undefined,sku:get('sku','sku') as string|undefined,barcode:get('barcode','barcode') as string|undefined,
-      youtubeUrl:get('youtubeUrl','youtube_url') as string|undefined,tags:get('tags','tags') as string[],isFeatured:get('isFeatured','is_featured') as boolean,
+      titleAr:get('titleAr','title_ar') as string,titleEn:get('titleEn','title_en') as string|null|undefined,slug:get('slug','slug') as string,
+      shortDescriptionAr:get('shortDescriptionAr','short_description_ar') as string|null|undefined,shortDescriptionEn:get('shortDescriptionEn','short_description_en') as string|null|undefined,
+      detailedDescriptionAr:get('detailedDescriptionAr','detailed_description_ar') as string|null|undefined,detailedDescriptionEn:get('detailedDescriptionEn','detailed_description_en') as string|null|undefined,
+      modelCode:get('modelCode','model_code') as string|null|undefined,sku:get('sku','sku') as string|null|undefined,barcode:get('barcode','barcode') as string|null|undefined,
+      youtubeUrl:get('youtubeUrl','youtube_url') as string|null|undefined,tags:get('tags','tags') as string[],isFeatured:get('isFeatured','is_featured') as boolean,
       status:get('status','status') as string,sortOrder:Number(get('sortOrder','sort_order')),seoTitleAr:get('seoTitleAr','seo_title_ar') as string|undefined,
       seoTitleEn:get('seoTitleEn','seo_title_en') as string|undefined,seoDescriptionAr:get('seoDescriptionAr','seo_description_ar') as string|undefined,
       seoDescriptionEn:get('seoDescriptionEn','seo_description_en') as string|undefined,quoteEnabled:get('quoteEnabled','quote_enabled') as boolean,
       availabilityStatus:get('availabilityStatus','availability_status') as string,unitOfMeasure:get('unitOfMeasure','unit_of_measure') as string,
       minimumRequestQuantity:Number(get('minimumRequestQuantity','minimum_request_quantity')),
-      maximumRequestQuantity:row.maximum_request_quantity===null&&input.maximumRequestQuantity===undefined?undefined:Number(get('maximumRequestQuantity','maximum_request_quantity')),
+      maximumRequestQuantity:get('maximumRequestQuantity','maximum_request_quantity')===null?null:Number(get('maximumRequestQuantity','maximum_request_quantity')),
       quantityStep:Number(get('quantityStep','quantity_step')),specifications:get('specifications','specifications') as Record<string,string|number|boolean>};
   }
   private async replaceChildren(client:DbExecutor,id:string,images:ProductImageDto[],variants:ProductVariantDto[],related:string[],
@@ -220,7 +230,7 @@ export class ProductsService{
   }
   private async requireOne(client:DbExecutor,id:string):Promise<unknown>{const result=await client.query('SELECT * FROM products WHERE id=$1',[id]);return result.rows[0];}
   private async createWithExecutor(client:DbExecutor,input:CreateProductDto):Promise<unknown>{
-    this.validate(input);const result=await client.query<ProductIdRow>(`INSERT INTO products(category_id,brand_id,title_ar,title_en,slug,short_description_ar,
+    this.validateDto(input);this.validate(input);const result=await client.query<ProductIdRow>(`INSERT INTO products(category_id,brand_id,title_ar,title_en,slug,short_description_ar,
       short_description_en,detailed_description_ar,detailed_description_en,model_code,sku,barcode,youtube_url,tags,is_featured,status,
       published_at,sort_order,seo_title_ar,seo_title_en,seo_description_ar,seo_description_en,quote_enabled,availability_status,
       unit_of_measure,minimum_request_quantity,maximum_request_quantity,quantity_step,specifications)

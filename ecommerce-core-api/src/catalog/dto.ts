@@ -1,4 +1,5 @@
 import { IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
+import { PartialType } from '@nestjs/swagger';
 export class UpsertCatalogEntryDto{
   @IsOptional()@IsUUID()parentId?:string|null;
   @IsOptional()@IsString()@MaxLength(255)titleAr?:string;
@@ -26,7 +27,8 @@ export class CreateCatalogValueDto{
   @IsOptional()@IsString()@MaxLength(100)code?:string;
   @IsOptional()@IsInt()@Min(0)sortOrder?:number;
 }
-export class UpdateCatalogValueDto extends CreateCatalogValueDto{}
+export class UpdateCatalogValueDto extends PartialType(CreateCatalogValueDto){}
+export class UpdateCatalogEntryDto extends PartialType(UpsertCatalogEntryDto){}
 export class UpdateCategoryAttributesDto{
   @IsArray()@IsUUID('4',{each:true})attributeIds!:string[];
 }

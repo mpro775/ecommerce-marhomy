@@ -1,4 +1,5 @@
 import { Type } from 'class-transformer';
+import { PartialType } from '@nestjs/swagger';
 import { IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUrl, IsUUID, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 const units=['piece','box','carton','meter','kilogram','gram','liter','set','roll','pack'] as const;
 export class ProductImageDto{
@@ -12,9 +13,9 @@ export class ProductImageDto{
 export class ProductVariantDto{
   @IsOptional()@IsUUID()id?:string;
   @IsString()@MaxLength(255)titleAr!:string;
-  @IsOptional()@IsString()@MaxLength(255)titleEn?:string;
-  @IsOptional()@IsString()@MaxLength(100)sku?:string;
-  @IsOptional()@IsString()@MaxLength(100)barcode?:string;
+  @IsOptional()@IsString()@MaxLength(255)titleEn?:string|null;
+  @IsOptional()@IsString()@MaxLength(100)sku?:string|null;
+  @IsOptional()@IsString()@MaxLength(100)barcode?:string|null;
   @IsOptional()@IsObject()attributes?:Record<string,string>;
   @IsOptional()@IsArray()@IsUUID('4',{each:true})attributeValueIds?:string[];
   @IsOptional()@IsBoolean()isDefault?:boolean;
@@ -29,29 +30,29 @@ export class CreateProductDto{
   @IsOptional()@IsUUID()categoryId?:string|null;
   @IsOptional()@IsUUID()brandId?:string|null;
   @IsString()@MaxLength(255)titleAr!:string;
-  @IsOptional()@IsString()@MaxLength(255)titleEn?:string;
+  @IsOptional()@IsString()@MaxLength(255)titleEn?:string|null;
   @IsString()@MaxLength(255)slug!:string;
-  @IsOptional()@IsString()shortDescriptionAr?:string;
-  @IsOptional()@IsString()shortDescriptionEn?:string;
-  @IsOptional()@IsString()detailedDescriptionAr?:string;
-  @IsOptional()@IsString()detailedDescriptionEn?:string;
-  @IsOptional()@IsString()@MaxLength(100)modelCode?:string;
-  @IsOptional()@IsString()@MaxLength(100)sku?:string;
-  @IsOptional()@IsString()@MaxLength(100)barcode?:string;
-  @IsOptional()@IsUrl({require_tld:false})youtubeUrl?:string;
+  @IsOptional()@IsString()shortDescriptionAr?:string|null;
+  @IsOptional()@IsString()shortDescriptionEn?:string|null;
+  @IsOptional()@IsString()detailedDescriptionAr?:string|null;
+  @IsOptional()@IsString()detailedDescriptionEn?:string|null;
+  @IsOptional()@IsString()@MaxLength(100)modelCode?:string|null;
+  @IsOptional()@IsString()@MaxLength(100)sku?:string|null;
+  @IsOptional()@IsString()@MaxLength(100)barcode?:string|null;
+  @IsOptional()@IsUrl({require_tld:false})youtubeUrl?:string|null;
   @IsOptional()@IsArray()@IsString({each:true})tags?:string[];
   @IsOptional()@IsBoolean()isFeatured?:boolean;
   @IsOptional()@IsIn(['draft','published','archived'])status?:string;
   @IsOptional()@IsInt()@Min(0)sortOrder?:number;
-  @IsOptional()@IsString()seoTitleAr?:string;
-  @IsOptional()@IsString()seoTitleEn?:string;
-  @IsOptional()@IsString()seoDescriptionAr?:string;
-  @IsOptional()@IsString()seoDescriptionEn?:string;
+  @IsOptional()@IsString()seoTitleAr?:string|null;
+  @IsOptional()@IsString()seoTitleEn?:string|null;
+  @IsOptional()@IsString()seoDescriptionAr?:string|null;
+  @IsOptional()@IsString()seoDescriptionEn?:string|null;
   @IsOptional()@IsBoolean()quoteEnabled?:boolean;
   @IsOptional()@IsIn(['available','on_request','temporarily_unavailable','discontinued'])availabilityStatus?:string;
   @IsOptional()@IsIn(units)unitOfMeasure?:string;
   @IsOptional()@IsNumber({maxDecimalPlaces:3})@Min(0.001)minimumRequestQuantity?:number;
-  @IsOptional()@IsNumber({maxDecimalPlaces:3})@Min(0.001)maximumRequestQuantity?:number;
+  @IsOptional()@IsNumber({maxDecimalPlaces:3})@Min(0.001)maximumRequestQuantity?:number|null;
   @IsOptional()@IsNumber({maxDecimalPlaces:3})@Min(0.001)quantityStep?:number;
   @IsOptional()@IsObject()specifications?:Record<string,string|number|boolean>;
   @IsOptional()@IsArray()@ValidateNested({each:true})@Type(()=>ProductImageDto)images?:ProductImageDto[];
@@ -61,7 +62,7 @@ export class CreateProductDto{
   @IsOptional()@IsArray()@IsUUID('4',{each:true})filterValueIds?:string[];
   @IsOptional()@IsArray()@ValidateNested({each:true})@Type(()=>ProductFilterRangeDto)filterRanges?:ProductFilterRangeDto[];
 }
-export class UpdateProductDto extends CreateProductDto{}
+export class UpdateProductDto extends PartialType(CreateProductDto){}
 export class ListProductsQuery{
   @IsOptional()@IsString()search?:string;
   @IsOptional()@IsString()category?:string;
