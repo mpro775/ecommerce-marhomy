@@ -1,1 +1,0 @@
-export { LoyaltyPanel } from './loyalty';

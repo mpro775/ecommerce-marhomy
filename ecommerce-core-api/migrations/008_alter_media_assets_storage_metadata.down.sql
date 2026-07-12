@@ -1,4 +1,0 @@
-ALTER TABLE media_assets
-  DROP COLUMN IF EXISTS metadata,
-  DROP COLUMN IF EXISTS etag,
-  DROP COLUMN IF EXISTS bucket_name;

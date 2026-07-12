@@ -1,1 +1,0 @@
-export { FiltersPanel } from './filters';

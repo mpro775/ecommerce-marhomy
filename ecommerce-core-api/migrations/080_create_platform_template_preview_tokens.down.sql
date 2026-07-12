@@ -1,3 +1,0 @@
-DROP INDEX IF EXISTS idx_platform_template_preview_tokens_template;
-DROP INDEX IF EXISTS idx_platform_template_preview_tokens_token_expires;
-DROP TABLE IF EXISTS platform_theme_template_preview_tokens;

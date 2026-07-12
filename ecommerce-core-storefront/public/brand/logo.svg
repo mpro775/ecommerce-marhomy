@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 96" role="img" aria-labelledby="title">
+  <title id="title">Catalog Company</title>
+  <rect width="96" height="96" rx="24" fill="#0f5f73"/>
+  <path d="M25 28h46v10H25zm0 18h35v10H25zm0 18h46v10H25z" fill="#fff"/>
+  <circle cx="70" cy="51" r="13" fill="#e48b12"/>
+  <text x="116" y="61" font-family="Arial,sans-serif" font-size="35" font-weight="700" fill="#163039">Catalog RFQ</text>
+</svg>

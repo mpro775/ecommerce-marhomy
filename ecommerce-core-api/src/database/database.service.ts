@@ -1,73 +1,24 @@
-import { Injectable, OnModuleDestroy, Optional } from '@nestjs/common';
+import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import Redis from 'ioredis';
-import { Pool } from 'pg';
-
+import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
+export interface DbExecutor{
+  query<T extends QueryResultRow=QueryResultRow>(text:string,values?:unknown[]):Promise<QueryResult<T>>;
+}
 @Injectable()
 export class DatabaseService implements OnModuleDestroy {
-  private pool: Pool;
-  private redis: Redis;
-
-  constructor(@Optional() private readonly configService?: ConfigService) {
-    const databaseUrl =
-      this.configService?.get<string>('DATABASE_URL') ??
-      process.env.DATABASE_URL ??
-      'postgres://ecommerce_core:password@localhost:5432/ecommerce_core_store';
-
-    const redisUrl =
-      this.configService?.get<string>('REDIS_URL') ??
-      process.env.REDIS_URL ??
-      'redis://localhost:6379';
-
-    this.pool = new Pool({ connectionString: databaseUrl });
-    this.redis = new Redis(redisUrl, { lazyConnect: true });
+  private readonly pool: Pool;
+  constructor(config: ConfigService) {
+    this.pool = new Pool({ connectionString: config.getOrThrow<string>('DATABASE_URL'), max: config.get<number>('DATABASE_POOL_SIZE', 10) });
   }
-
-  async onModuleDestroy(): Promise<void> {
-    await this.pool.end();
-    if (this.redis.status !== 'end') {
-      await this.redis.quit();
-    }
+  query<T extends QueryResultRow = QueryResultRow>(text: string, values: unknown[] = []): Promise<QueryResult<T>> {
+    return this.pool.query<T>(text, values);
   }
-
-  async pingPostgres(): Promise<void> {
-    await this.pool.query('SELECT 1');
+  async transaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
+    const client = await this.pool.connect();
+    try { await client.query('BEGIN'); const result = await work(client); await client.query('COMMIT'); return result; }
+    catch (error) { await client.query('ROLLBACK'); throw error; }
+    finally { client.release(); }
   }
-
-  async pingRedis(): Promise<void> {
-    if (this.redis.status === 'wait') {
-      await this.redis.connect();
-    }
-    await this.redis.ping();
-  }
-
-  get db(): Pool {
-    const pool = this.pool;
-
-    const originalQuery = pool.query.bind(pool);
-
-    if (!(pool as any).__debugWrapped) {
-      (pool as any).query = async (text: string, values?: unknown[]) => {
-        try {
-          return await originalQuery(text, values);
-        } catch (error) {
-          console.error('[PG QUERY ERROR]', {
-            message: error instanceof Error ? error.message : String(error),
-            text,
-            values,
-            valuesLength: values?.length,
-          });
-          throw error;
-        }
-      };
-
-      (pool as any).__debugWrapped = true;
-    }
-
-    return pool;
-  }
-
-  get cache(): Redis {
-    return this.redis;
-  }
+  async ping(): Promise<void> { await this.pool.query('SELECT 1'); }
+  async onModuleDestroy(): Promise<void> { await this.pool.end(); }
 }

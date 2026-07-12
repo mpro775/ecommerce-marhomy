@@ -1,15 +1,6 @@
 import { Module } from '@nestjs/common';
-import { SecurityModule } from '../security/security.module';
-import { StoreCapabilitiesModule } from '../store-capabilities/store-capabilities.module';
-import { StoresModule } from '../stores/stores.module';
-import { AnalyticsController } from './analytics.controller';
-import { AnalyticsRepository } from './analytics.repository';
+import { AuthModule } from '../auth/auth.module';
+import { AnalyticsEventsController, AdminAnalyticsController } from './analytics.controller';
 import { AnalyticsService } from './analytics.service';
-
-@Module({
-  imports: [SecurityModule, StoresModule, StoreCapabilitiesModule],
-  controllers: [AnalyticsController],
-  providers: [AnalyticsService, AnalyticsRepository],
-  exports: [AnalyticsService, AnalyticsRepository],
-})
-export class AnalyticsModule {}
+@Module({imports:[AuthModule],controllers:[AnalyticsEventsController,AdminAnalyticsController],providers:[AnalyticsService],exports:[AnalyticsService]})
+export class AnalyticsModule{}

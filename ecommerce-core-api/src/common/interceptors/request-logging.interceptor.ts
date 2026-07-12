@@ -1,31 +1,11 @@
 import { CallHandler, ExecutionContext, Injectable, Logger, NestInterceptor } from '@nestjs/common';
-import type { Request } from 'express';
-import { Observable, tap } from 'rxjs';
-import { REQUEST_ID_CONTEXT_KEY } from '../constants/request-id.constant';
-
+import type { Observable } from 'rxjs';
+import { finalize } from 'rxjs/operators';
 @Injectable()
 export class RequestLoggingInterceptor implements NestInterceptor {
-  private readonly logger = new Logger(RequestLoggingInterceptor.name);
-
-  intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
-    const request = context.switchToHttp().getRequest<
-      Request & {
-        method: string;
-        url: string;
-        [REQUEST_ID_CONTEXT_KEY]?: string;
-      }
-    >();
-    const startedAt = Date.now();
-
-    return next.handle().pipe(
-      tap(() => {
-        this.logger.log({
-          method: request.method,
-          path: request.url,
-          durationMs: Date.now() - startedAt,
-          requestId: request[REQUEST_ID_CONTEXT_KEY] ?? null,
-        });
-      }),
-    );
+  private readonly logger=new Logger('HTTP');
+  intercept(context:ExecutionContext,next:CallHandler):Observable<unknown>{
+    const request=context.switchToHttp().getRequest<{method:string;originalUrl:string}>(); const startedAt=Date.now();
+    return next.handle().pipe(finalize(()=>this.logger.log(request.method+' '+request.originalUrl+' '+(Date.now()-startedAt)+'ms')));
   }
 }
