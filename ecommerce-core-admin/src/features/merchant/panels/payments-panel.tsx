@@ -1,1 +1,0 @@
-export { PaymentsPanel } from './payments';

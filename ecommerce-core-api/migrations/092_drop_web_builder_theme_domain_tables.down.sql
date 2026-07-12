@@ -1,1 +1,0 @@
--- Down migration not implemented as this is a permanent structural deletion.

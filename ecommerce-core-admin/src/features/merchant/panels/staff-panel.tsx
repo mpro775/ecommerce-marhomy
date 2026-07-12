@@ -1,1 +1,0 @@
-export { StaffPanel } from './staff';
