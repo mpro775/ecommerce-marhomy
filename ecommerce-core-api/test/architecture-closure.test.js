@@ -19,10 +19,10 @@ test('source has no tenant, financial, fulfillment, or stock domain remnants',()
     't'+'ax','inven'+'tory','ware'+'house','ship'+'ment','pay'+'ment','cou'+'pon','loy'+'alty','affil'+'iate','aban'+'doned'];
   for(const fragment of fragments)assert.equal(content.toLowerCase().includes(fragment.toLowerCase()),false,'found '+fragment);
 });
-test('baseline consists of eight ordered reversible migrations',()=>{
+test('baseline consists of nine ordered reversible migrations',()=>{
   const names=fs.readdirSync(path.join(root,'migrations'));const up=names.filter(name=>name.endsWith('.up.sql')).sort();
-  const down=names.filter(name=>name.endsWith('.down.sql')).sort();assert.equal(up.length,8);assert.equal(down.length,8);
-  assert.deepEqual(up.map(name=>name.slice(0,3)),['001','002','003','004','005','006','007','008']);
+  const down=names.filter(name=>name.endsWith('.down.sql')).sort();assert.equal(up.length,9);assert.equal(down.length,9);
+  assert.deepEqual(up.map(name=>name.slice(0,3)),['001','002','003','004','005','006','007','008','009']);
   for(const name of up)assert.ok(names.includes(name.replace('.up.sql','.down.sql')));
 });
 test('catalog schema uses descriptive request fields and decimal quantity rules',()=>{

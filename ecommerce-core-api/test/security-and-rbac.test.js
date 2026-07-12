@@ -14,8 +14,15 @@ test('public submission includes throttling, honeypot, timing, phone, and text d
   assert.match(service,/assertSpamSafe/);assert.match(service,/Idempotency-Key/);
 });
 test('media upload uses allowlisted content types and byte limits',()=>{
-  const media=read('src/media/media.service.ts');const controller=read('src/media/media.controller.ts');
-  assert.match(media,/image\/jpeg/);assert.match(media,/video\/mp4/);assert.doesNotMatch(media,/image\/svg/);assert.match(controller,/fileSize/);
+  const media=read('src/media/media.service.ts');const processor=read('src/media/media.processor.ts');const controller=read('src/media/media.controller.ts');
+  assert.match(processor,/image\/jpeg/);assert.match(processor,/video\/mp4/);assert.doesNotMatch(processor,/image\/svg/);assert.match(controller,/fileSize/);
+  assert.match(processor,/fileTypeFromBuffer/);assert.match(processor,/sharp/);assert.doesNotMatch(media,/file\.mimetype/);
+});
+test('media deletion checks references and uses a pending state before object deletion',()=>{
+  const media=read('src/media/media.service.ts');const migration=read('migrations/009_harden_media_deletion.up.sql');
+  assert.match(media,/product_images/);assert.match(media,/pending_delete/);assert.match(media,/DeleteObjectCommand/);
+  assert.ok(media.indexOf("deletion_status='pending_delete'")<media.lastIndexOf('DeleteObjectCommand'));
+  assert.match(migration,/ensure_product_media_asset_is_active/);assert.match(migration,/FOR SHARE/);
 });
 test('seed defines the documented least-privilege permissions and roles',()=>{
   const seed=read('migrations/008_seed_roles_permissions.up.sql');

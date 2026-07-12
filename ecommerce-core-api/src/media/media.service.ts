@@ -1,9 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { randomUUID } from 'node:crypto';
 import { DatabaseService } from '../database/database.service';
-const allowed:Record<string,string>={'image/jpeg':'jpg','image/png':'png','image/webp':'webp','image/gif':'gif','video/mp4':'mp4'};
+import { prepareMedia } from './media.processor';
 @Injectable()
 export class MediaService{
   private readonly client:S3Client;private readonly bucket:string;private readonly publicUrl:string;
@@ -14,18 +14,34 @@ export class MediaService{
       secretAccessKey:config.getOrThrow<string>('S3_SECRET_KEY')}});
   }
   async upload(file:Express.Multer.File,userId:string):Promise<unknown>{
-    const extension=allowed[file.mimetype];if(!extension)throw new BadRequestException('Unsupported media type');
-    if(!file.buffer?.length)throw new BadRequestException('Media file is empty');
-    const key='catalog/'+new Date().toISOString().slice(0,7)+'/'+randomUUID()+'.'+extension;
-    await this.client.send(new PutObjectCommand({Bucket:this.bucket,Key:key,Body:file.buffer,ContentType:file.mimetype,
+    const media=await prepareMedia(file?.buffer??Buffer.alloc(0));
+    const key='catalog/'+new Date().toISOString().slice(0,7)+'/'+randomUUID()+'.'+media.extension;
+    await this.client.send(new PutObjectCommand({Bucket:this.bucket,Key:key,Body:media.buffer,ContentType:media.mimeType,
       CacheControl:'public, max-age=31536000, immutable'}));
-    return(await this.database.query(`INSERT INTO media_assets(object_key,public_url,mime_type,byte_size,created_by_admin_user_id)
-      VALUES($1,$2,$3,$4,$5) RETURNING *`,[key,this.publicUrl+'/'+key,file.mimetype,file.size,userId])).rows[0];
+    try{
+      return(await this.database.query(`INSERT INTO media_assets(object_key,public_url,mime_type,byte_size,created_by_admin_user_id)
+        VALUES($1,$2,$3,$4,$5) RETURNING *`,[key,this.publicUrl+'/'+key,media.mimeType,media.buffer.length,userId])).rows[0];
+    }catch(error){
+      try{await this.client.send(new DeleteObjectCommand({Bucket:this.bucket,Key:key}));}catch{/** Keep the original database error. */}
+      throw error;
+    }
   }
-  async list():Promise<unknown[]>{return(await this.database.query('SELECT * FROM media_assets ORDER BY created_at DESC LIMIT 200')).rows;}
+  async list():Promise<unknown[]>{return(await this.database.query("SELECT * FROM media_assets WHERE deletion_status='active' ORDER BY created_at DESC LIMIT 200")).rows;}
   async remove(id:string):Promise<void>{
-    const result=await this.database.query<{object_key:string}>('DELETE FROM media_assets WHERE id=$1 RETURNING object_key',[id]);
-    if(!result.rows[0])throw new NotFoundException('Media asset not found');
-    await this.client.send(new DeleteObjectCommand({Bucket:this.bucket,Key:result.rows[0].object_key}));
+    const asset=await this.database.transaction(async client=>{
+      const result=await client.query<{object_key:string;public_url:string;deletion_status:string}>(
+        'SELECT object_key,public_url,deletion_status FROM media_assets WHERE id=$1 FOR UPDATE',[id]);
+      const row=result.rows[0];if(!row)throw new NotFoundException('Media asset not found');
+      const references=await client.query<{source:string}>(`SELECT 'product' AS source FROM product_images
+        WHERE media_asset_id=$1 OR image_url=$2
+        UNION ALL SELECT 'category' FROM categories WHERE image_url=$2
+        UNION ALL SELECT 'brand' FROM brands WHERE logo_url=$2 LIMIT 1`,[id,row.public_url]);
+      if(references.rows[0])throw new ConflictException(`Media asset is still used by a ${references.rows[0].source}`);
+      if(row.deletion_status==='active')await client.query(
+        "UPDATE media_assets SET deletion_status='pending_delete',pending_delete_at=NOW() WHERE id=$1",[id]);
+      return row;
+    });
+    await this.client.send(new DeleteObjectCommand({Bucket:this.bucket,Key:asset.object_key}));
+    await this.database.query("DELETE FROM media_assets WHERE id=$1 AND deletion_status='pending_delete'",[id]);
   }
 }
