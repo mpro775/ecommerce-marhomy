@@ -1,0 +1,27 @@
+import Joi from 'joi';
+const secret = Joi.when('NODE_ENV', { is: 'production', then: Joi.string().min(32).required(),
+  otherwise: Joi.string().min(24).default('rfq-local-secret-change-this') });
+export const envValidationSchema = Joi.object({
+  NODE_ENV: Joi.string().valid('development','test','production').default('development'),
+  PORT: Joi.number().integer().min(1).max(65535).default(3000),
+  DATABASE_URL: Joi.string().uri({scheme:['postgres','postgresql']}).default('postgres://ecommerce_core:password@localhost:5432/ecommerce_core_rfq'),
+  DATABASE_POOL_SIZE: Joi.number().integer().min(1).max(50).default(10),
+  JWT_ACCESS_SECRET: secret, JWT_ACCESS_EXPIRES_IN: Joi.string().default('15m'),
+  REFRESH_TOKEN_TTL_DAYS: Joi.number().integer().min(1).max(90).default(30),
+  APP_NAME: Joi.string().default('Catalog RFQ'), APP_URL: Joi.string().uri({scheme:['http','https']}).default('http://localhost:5174'),
+  APP_TIMEZONE: Joi.string().default('Asia/Aden'), QUOTE_REQUEST_PREFIX: Joi.string().alphanum().uppercase().max(10).default('RFQ'),
+  QUOTE_CART_TTL_DAYS: Joi.number().integer().min(1).max(90).default(14),
+  QUOTE_MIN_FORM_FILL_MS: Joi.number().integer().min(0).max(60000).default(1500),
+  QUOTE_NOTIFICATION_EMAILS: Joi.string().allow('').default(''),
+  ALLOWED_ORIGINS: Joi.string().allow('').default('http://localhost:5173,http://localhost:5174'),
+  HTTP_JSON_BODY_LIMIT: Joi.string().default('1mb'), EMAIL_DELIVERY_MODE: Joi.string().valid('log','smtp').default('log'),
+  EMAIL_FROM: Joi.string().email({tlds:{allow:false}}).default('no-reply@example.com'),
+  SMTP_HOST: Joi.string().allow('').default(''), SMTP_PORT: Joi.number().integer().min(1).max(65535).default(465),
+  SMTP_SECURE: Joi.boolean().default(true), SMTP_USER: Joi.string().allow('').default(''), SMTP_PASSWORD: Joi.string().allow('').default(''),
+  STORAGE_BUCKET: Joi.string().default('catalog-media'),
+  STORAGE_PUBLIC_URL: Joi.string().uri({scheme:['http','https']}).default('http://localhost:9000/catalog-media'),
+  S3_ENDPOINT: Joi.string().uri({scheme:['http','https']}).default('http://localhost:9000'),
+  S3_REGION: Joi.string().default('us-east-1'), S3_ACCESS_KEY: Joi.string().default('minio'),
+  S3_SECRET_KEY: Joi.string().default('minio123'), S3_FORCE_PATH_STYLE: Joi.boolean().default(true),
+  SENTRY_DSN: Joi.string().allow('').default(''),
+});

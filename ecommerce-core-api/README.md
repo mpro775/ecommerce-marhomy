@@ -1,83 +1,46 @@
-# General Ecommerce API
+# Catalog RFQ API
 
-Backend API for the General Ecommerce Platform.
+NestJS and PostgreSQL backend for a single-company product catalog and quote-request workflow.
 
-## Tech Stack
+## Capabilities
 
-- **Runtime:** Node.js 20+
-- **Framework:** NestJS 11
-- **Database:** PostgreSQL (via `pg`)
-- **Cache:** Redis (via `ioredis`)
-- **Message Broker:** RabbitMQ (via `amqplib`)
-- **Storage:** S3-compatible (via AWS SDK)
-- **Auth:** JWT + Argon2 password hashing
-- **Monitoring:** Sentry
+- Admin authentication, refresh sessions, invitations, password recovery, roles, permissions, and audit log.
+- Arabic/English catalog with categories, brands, attributes, filters, media, products, variants, SEO, related products, and Excel import/export.
+- Anonymous quote carts with decimal quantities, product rules, optional variants, notes, and expiration.
+- Atomic request submission with contact upsert, snapshots, status history, public tracking token, and `Idempotency-Key`.
+- Admin request assignment, notes, transitions, exports, notifications, durable outbox retries, and operational analytics.
+- Request IDs, validation, Helmet, CORS allowlist, throttling, health checks, Swagger, and optional Sentry.
 
-## Quick Start
+## Start
 
 ```bash
 npm install
-cp .env.example .env   # configure your environment
-npm run migrate:up
-npm run seed:run
+npm run migrate:fresh
+npm run admin:create -- owner@example.com "Owner Name" "a-strong-password"
 npm run dev
 ```
 
-## Scripts
+Swagger is available at `/docs`; API routes use the `/api` prefix.
 
-| Command                       | Description                      |
-| ----------------------------- | -------------------------------- |
-| `npm run dev`                 | Start dev server with hot reload |
-| `npm run build`               | Build for production             |
-| `npm run typecheck`           | Type-check without emitting      |
-| `npm run lint`                | Lint source code                 |
-| `npm run test`                | Run unit tests                   |
-| `npm run test:e2e:smoke`      | Run e2e smoke tests              |
-| `npm run migrate:up`          | Run database migrations          |
-| `npm run migrate:down`        | Rollback last migration          |
-| `npm run seed:run`            | Seed database                    |
-| `npm run queue:health`        | Check RabbitMQ health            |
-
-## Workers
+## Main commands
 
 ```bash
-npm run worker:outbox            # Outbox event publisher
-npm run worker:notifications     # Notification consumer
-npm run worker:abandoned-carts   # Abandoned cart recovery
+npm run build
+npm run lint
+npm test
+npm run migrate:up
+npm run migrate:down
+npm run migrate:fresh
+npm run worker:outbox
 ```
 
-## Docker
+`migrate:fresh` intentionally replaces the target `public` schema and must only be used against a new or disposable database.
+
+## Backup and restore
+
+With PostgreSQL client tools installed:
 
 ```bash
-docker build -t general-ecommerce-api .
-docker run -p 3000:3000 --env-file .env general-ecommerce-api
-```
-
-## Project Structure
-
-```
-src/
-├── auth/           # Authentication & authorization
-├── products/       # Product catalog
-├── orders/         # Order management
-├── payments/       # Payment processing
-├── inventory/      # Inventory & warehouses
-├── customers/      # Customer management
-├── shipping/       # Shipping methods
-├── promotions/     # Coupons & promotions
-├── themes/         # Store themes
-├── domains/        # Custom domains & SSL
-├── storefront/     # Storefront API
-├── analytics/      # Analytics & events
-├── notifications/  # Notification system
-├── messaging/      # RabbitMQ messaging
-├── media/          # Media & file uploads
-├── saas/           # SaaS controls & billing
-├── platform/       # Platform admin
-├── webhooks/       # Webhook system
-├── workers/        # Background workers
-├── database/       # Database service
-├── config/         # Configuration
-├── common/         # Shared utilities & types
-└── health/         # Health checks
+DATABASE_URL=postgresql://... ./scripts/backup.sh
+DATABASE_URL=postgresql://... ./scripts/restore.sh ./backups/catalog_rfq_YYYYMMDD_HHMMSS.dump --yes
 ```

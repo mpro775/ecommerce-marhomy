@@ -20,7 +20,7 @@ function normalizeSql(sql) {
     return sql;
   }
 
-  // Some editors save UTF-8 BOM at file start; PostgreSQL may reject it as syntax noise.
+  // Some editors save UTF-8 BOM at file start; PostgreSQL may reject it as parsing noise.
   return sql.replace(/^\uFEFF/, '');
 }
 
