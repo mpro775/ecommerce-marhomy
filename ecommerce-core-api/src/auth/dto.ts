@@ -3,6 +3,3 @@ export class LoginDto{
   @IsEmail()email!:string;
   @IsString()@MinLength(8)password!:string;
 }
-export class RefreshDto{
-  @IsString()@MinLength(20)refreshToken!:string;
-}

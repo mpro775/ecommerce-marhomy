@@ -38,11 +38,25 @@ export class TeamService{
       await client.query('UPDATE admin_invites SET accepted_at=NOW() WHERE id=$1',[invite.rows[0].id]);
     });
   }
-  async update(id:string,input:UpdateAdminDto):Promise<unknown>{
+  async update(id:string,input:UpdateAdminDto,actor:AuthUser):Promise<unknown>{
     return this.database.transaction(async(client)=>{
-      const current=await client.query('SELECT id FROM admin_users WHERE id=$1 AND deleted_at IS NULL FOR UPDATE',[id]);
+      const ownerRole=await client.query<{id:string}>("SELECT id FROM roles WHERE name='owner' FOR UPDATE");
+      if(!ownerRole.rows[0])throw new ConflictException('Owner role is not configured');
+      const current=await client.query<{id:string;is_active:boolean;is_owner:boolean}>(`SELECT u.id,u.is_active,
+        EXISTS(SELECT 1 FROM admin_user_roles ur WHERE ur.admin_user_id=u.id AND ur.role_id=$2) AS is_owner
+        FROM admin_users u WHERE u.id=$1 AND u.deleted_at IS NULL FOR UPDATE`,[id,ownerRole.rows[0].id]);
       if(!current.rows[0])throw new NotFoundException('Admin user not found');
+      if(actor.id===id&&input.isActive===false)throw new ConflictException('You cannot deactivate your own account');
+      const remainsActive=input.isActive??current.rows[0].is_active;
+      const remainsOwner=input.roles?input.roles.includes('owner'):current.rows[0].is_owner;
+      if(current.rows[0].is_active&&current.rows[0].is_owner&&(!remainsActive||!remainsOwner)){
+        const otherOwners=await client.query(`SELECT 1 FROM admin_users u JOIN admin_user_roles ur ON ur.admin_user_id=u.id
+          WHERE ur.role_id=$1 AND u.id<>$2 AND u.is_active=TRUE AND u.deleted_at IS NULL LIMIT 1`,[ownerRole.rows[0].id,id]);
+        if(!otherOwners.rows[0])throw new ConflictException('The last active owner cannot be deactivated or demoted');
+      }
       if(input.isActive!==undefined)await client.query('UPDATE admin_users SET is_active=$2,updated_at=NOW() WHERE id=$1',[id,input.isActive]);
+      if(input.isActive===false)await client.query(`UPDATE admin_sessions SET revoked_at=NOW(),updated_at=NOW()
+        WHERE admin_user_id=$1 AND revoked_at IS NULL`,[id]);
       if(input.roles){const roles=await client.query<{id:string}>('SELECT id FROM roles WHERE name=ANY($1::text[])',[input.roles]);
         if(roles.rows.length!==input.roles.length)throw new BadRequestException('One or more roles are invalid');
         await client.query('DELETE FROM admin_user_roles WHERE admin_user_id=$1',[id]);

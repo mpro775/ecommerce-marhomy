@@ -26,11 +26,13 @@ const nav:Array<{label:string;items:Array<[string,string]>}>=[
   {label:'الإدارة',items:[['team','الفريق والأدوار'],['reports','التقارير'],['audit','سجل العمليات']]},
 ];
 export function App(){
-  const[sessionState,setSessionState]=useState<Session|null>(()=>restoreSession()),[page,setPage]=useState('dashboard');
+  const[sessionState,setSessionState]=useState<Session|null|undefined>(undefined),[page,setPage]=useState('dashboard');
+  useEffect(()=>{void restoreSession().then(setSessionState);},[]);
   const path = window.location.pathname;
   if(path === '/accept-invite') return <AcceptInvite />;
   if(path === '/reset-password') return <ResetPassword />;
   if(path === '/forgot-password') return <ForgotPassword />;
+  if(sessionState===undefined)return <main className="login-page" dir="rtl"/>;
   if(!sessionState)return <Login onLogin={setSessionState}/>;
   const user=sessionState.user;
   const logout=async()=>{try{await api('/auth/logout',{method:'POST'});}finally{setSession(null);setSessionState(null);}};
@@ -38,7 +40,7 @@ export function App(){
     <div><strong>{brandConfig.name}</strong><small>إدارة الكتالوج والطلبات</small></div></div>
     {nav.map(group=><div className="nav-group" key={group.label}><div className="nav-label">{group.label}</div>{group.items.map(([key,label])=>
       <button key={key} className={'nav-button '+(page===key?'active':'')} onClick={()=>setPage(key)}>{label}</button>)}</div>)}</aside>
-    <main className="main"><header className="topbar"><div><strong>{user.fullName}</strong><span className="muted"> · {user.role}</span></div>
+    <main className="main"><header className="topbar"><div><strong>{user.fullName}</strong><span className="muted"> · {user.roles.join('، ')}</span></div>
       <button className="button secondary small" onClick={()=>void logout()}>تسجيل الخروج</button></header>
       <section className="content"><Router page={page}/></section></main></div>;
 }

@@ -17,7 +17,7 @@ export class TeamController{
   @Post('invites')@RequirePermissions(PERMISSIONS.teamWrite)
   invite(@Body()body:InviteAdminDto,@CurrentUser()user:AuthUser){return this.team.invite(body,user);}
   @Patch('users/:id')@RequirePermissions(PERMISSIONS.teamWrite)
-  update(@Param('id')id:string,@Body()body:UpdateAdminDto){return this.team.update(id,body);}
+  update(@Param('id')id:string,@Body()body:UpdateAdminDto,@CurrentUser()user:AuthUser){return this.team.update(id,body,user);}
 }
 @Controller()
 export class TeamPublicController{
