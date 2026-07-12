@@ -9,6 +9,6 @@ npm run typecheck
 npm run build
 ```
 
-The repository scripts reuse the admin dependency runtime for local verification. A standalone deployment may replace the script commands with regular `vite` after running `npm install` in this directory.
+The package installs and uses its own Vite, React, and TypeScript dependencies; it does not depend on the admin package's `node_modules` directory.
 
 Production hosting must route unknown storefront paths (such as `/products/example`) to `index.html`. Set the API `APP_URL` to the public storefront origin so canonical sitemap URLs are correct. The dynamic sitemap is exposed at `/api/seo/sitemap.xml` and `public/robots.txt` references it.

@@ -1,0 +1,119 @@
+name: ecommerce-core
+
+x-api-build: &api-build
+  image: ecommerce-core-api:local
+  build:
+    context: ./ecommerce-core-api
+
+x-api-environment: &api-environment
+  NODE_ENV: production
+  PORT: 3000
+  DATABASE_URL: postgresql://${POSTGRES_USER:-ecommerce_core}:${POSTGRES_PASSWORD:-local-database-password}@database:5432/${POSTGRES_DB:-ecommerce_core_rfq}
+  JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-local-jwt-secret-change-before-production}
+  JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+  DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-10}
+  APP_URL: ${APP_URL:-http://localhost:8080}
+  APP_NAME: ${APP_NAME:-Catalog RFQ}
+  APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Riyadh}
+  ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080,http://localhost:8081}
+  QUOTE_NOTIFICATION_EMAILS: ${QUOTE_NOTIFICATION_EMAILS:-}
+  EMAIL_DELIVERY_MODE: ${EMAIL_DELIVERY_MODE:-log}
+  EMAIL_FROM: ${EMAIL_FROM:-no-reply@example.com}
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-465}
+  SMTP_SECURE: ${SMTP_SECURE:-true}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  S3_ENDPOINT: ${S3_ENDPOINT:-http://localhost:9000}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  STORAGE_BUCKET: ${STORAGE_BUCKET:-catalog-media}
+  STORAGE_PUBLIC_URL: ${STORAGE_PUBLIC_URL:-http://localhost:9000/catalog-media}
+  S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minio}
+  S3_SECRET_KEY: ${S3_SECRET_KEY:-minio123}
+  S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+  SENTRY_DSN: ${SENTRY_DSN:-}
+
+services:
+  database:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ecommerce_core}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-database-password}
+      POSTGRES_DB: ${POSTGRES_DB:-ecommerce_core_rfq}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    <<: *api-build
+    command: ["node", "scripts/migrate.mjs", "up"]
+    environment: *api-environment
+    depends_on:
+      database:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *api-build
+    restart: unless-stopped
+    environment: *api-environment
+    ports:
+      - "3000:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  outbox-worker:
+    <<: *api-build
+    restart: unless-stopped
+    command: ["node", "dist/workers/outbox.worker.js"]
+    environment: *api-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  cart-worker:
+    <<: *api-build
+    restart: unless-stopped
+    command: ["node", "dist/workers/cart-maintenance.worker.js"]
+    environment: *api-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  admin:
+    build:
+      context: ./ecommerce-core-admin
+      args:
+        VITE_API_BASE_URL: /api
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  storefront:
+    build:
+      context: ./ecommerce-core-storefront
+      args:
+        VITE_API_BASE_URL: /api
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres-data:

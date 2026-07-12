@@ -2,8 +2,7 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
-COPY package.json ./
-COPY package-lock.json ./
+COPY package.json package-lock.json ./
 RUN npm ci --include=dev --no-audit --no-fund
 
 COPY tsconfig.json vite.config.ts index.html ./
@@ -11,7 +10,6 @@ COPY public ./public
 COPY src ./src
 
 ARG VITE_API_BASE_URL=/api
-
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 
 RUN npm run build

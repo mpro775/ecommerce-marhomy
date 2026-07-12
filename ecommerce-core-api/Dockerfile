@@ -28,7 +28,6 @@ COPY --from=build /app/dist ./dist
 
 COPY scripts ./scripts
 COPY migrations ./migrations
-COPY seeds ./seeds
 
 EXPOSE 3000
 
