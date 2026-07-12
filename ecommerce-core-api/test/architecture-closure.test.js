@@ -12,7 +12,7 @@ function source(){
 test('backend contains only the final RFQ domain modules',()=>{
   const directories=fs.readdirSync(path.join(root,'src'),{withFileTypes:true}).filter(entry=>entry.isDirectory()).map(entry=>entry.name).sort();
   assert.deepEqual(directories,['analytics','audit','auth','catalog','common','config','database','email','health','media','notifications',
-    'outbox','products','quote-carts','quote-requests','rbac','team','workers']);
+    'outbox','products','quote-carts','quote-requests','rbac','seo','team','workers']);
 });
 test('source has no tenant, financial, fulfillment, or stock domain remnants',()=>{
   const content=source();const fragments=['store'+'_id','store'+'Id','ten'+'ant','pri'+'ce','curr'+'ency','sub'+'total','dis'+'count',

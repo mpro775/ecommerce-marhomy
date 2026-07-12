@@ -18,12 +18,13 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { TeamModule } from './team/team.module';
 import { MediaModule } from './media/media.module';
+import { SeoModule } from './seo/seo.module';
 @Module({
   imports:[
     ConfigModule.forRoot({isGlobal:true,envFilePath:['.env','../../.env'],validationSchema:envValidationSchema}),
     ThrottlerModule.forRoot([{ttl:60000,limit:100}]),DatabaseModule,HealthModule,AuthModule,AuditModule,
     CatalogModule,ProductsModule,QuoteCartsModule,QuoteRequestsModule,EmailModule,OutboxModule,
-    NotificationsModule,AnalyticsModule,TeamModule,MediaModule],
+    NotificationsModule,AnalyticsModule,TeamModule,MediaModule,SeoModule],
   providers:[{provide:APP_GUARD,useClass:ThrottlerGuard}],
 })
 export class AppModule implements NestModule{

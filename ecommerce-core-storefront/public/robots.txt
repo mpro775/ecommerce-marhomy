@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /cart
+Disallow: /request-success
+Disallow: /track
+Sitemap: /api/seo/sitemap.xml

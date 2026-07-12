@@ -10,3 +10,5 @@ npm run build
 ```
 
 The repository scripts reuse the admin dependency runtime for local verification. A standalone deployment may replace the script commands with regular `vite` after running `npm install` in this directory.
+
+Production hosting must route unknown storefront paths (such as `/products/example`) to `index.html`. Set the API `APP_URL` to the public storefront origin so canonical sitemap URLs are correct. The dynamic sitemap is exposed at `/api/seo/sitemap.xml` and `public/robots.txt` references it.
