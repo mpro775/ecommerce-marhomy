@@ -32,7 +32,10 @@ npm run migrate:up
 npm run migrate:down
 npm run migrate:fresh
 npm run worker:outbox
+npm run worker:carts
 ```
+
+Run `worker:carts` as a long-lived process. It expires carts without requiring a later storefront visit, flags excessive creation or item activity, and archives expired/submitted carts after the configured retention period.
 
 `migrate:fresh` intentionally replaces the target `public` schema and must only be used against a new or disposable database.
 

@@ -6,7 +6,7 @@ import { assertQuoteQuantity, sanitizeText } from '../common/domain/quote-rules'
 import type { AddQuoteCartItemDto, CreateQuoteCartDto, UpdateQuoteCartItemDto } from './dto';
 interface ProductRuleRow{id:string;unit_of_measure:string;minimum_request_quantity:string;maximum_request_quantity:string|null;
   quantity_step:string;quote_enabled:boolean;availability_status:string;status:string}
-export interface CartRow{id:string;public_token:string;status:string;expires_at:Date|null}
+export interface CartRow{id:string;public_token:string;status:string;expires_at:Date|null;archived_at:Date|null}
 @Injectable()
 export class QuoteCartsService{
   constructor(private readonly database:DatabaseService,private readonly config:ConfigService){}
@@ -19,6 +19,7 @@ export class QuoteCartsService{
   async get(token:string,executor?:DbExecutor,lock=false):Promise<{cart:CartRow;items:unknown[]}>{
     const db=executor??this.database;const result=await db.query(`SELECT * FROM quote_carts WHERE public_token=$1`+(lock?' FOR UPDATE':''),[token]);
     const cart=result.rows[0] as CartRow|undefined;if(!cart)throw new NotFoundException('Quote cart not found');
+    if(cart.archived_at)throw new GoneException('Quote cart has been archived');
     if(cart.status==='open'&&cart.expires_at&&new Date(cart.expires_at).getTime()<=Date.now()){
       await db.query(`UPDATE quote_carts SET status='expired',updated_at=NOW() WHERE id=$1`,[cart.id]);throw new GoneException('Quote cart has expired');
     }

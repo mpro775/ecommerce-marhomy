@@ -14,7 +14,12 @@ export class AnalyticsService{
     const [status,contacts,carts,requests,averages,products,categories,brands,cities,sources,agents]=await Promise.all([
       this.database.query(`SELECT status,COUNT(*)::int AS count FROM quote_requests GROUP BY status`),
       this.database.query(`SELECT COUNT(*)::int AS count FROM contacts`),
-      this.database.query(`SELECT COUNT(*)::int AS carts,COUNT(*) FILTER(WHERE status='submitted')::int AS submitted FROM quote_carts`),
+      this.database.query(`SELECT COUNT(*) FILTER(WHERE NOT is_suspicious AND EXISTS(
+          SELECT 1 FROM quote_cart_items i WHERE i.quote_cart_id=quote_carts.id))::int AS eligible_carts,
+        COUNT(*) FILTER(WHERE status='submitted' AND NOT is_suspicious AND EXISTS(
+          SELECT 1 FROM quote_cart_items i WHERE i.quote_cart_id=quote_carts.id))::int AS submitted,
+        COUNT(*) FILTER(WHERE NOT EXISTS(SELECT 1 FROM quote_cart_items i WHERE i.quote_cart_id=quote_carts.id))::int AS empty_carts,
+        COUNT(*) FILTER(WHERE is_suspicious)::int AS suspicious_carts FROM quote_carts`),
       this.database.query(`SELECT COUNT(*)::int AS count FROM quote_requests`),
       this.database.query(`SELECT COALESCE(AVG(item_count),0)::numeric(12,2) AS average_items,
         COALESCE(AVG(EXTRACT(EPOCH FROM(first_reviewed_at-submitted_at))/60) FILTER(WHERE first_reviewed_at IS NOT NULL),0)::numeric(12,2) AS average_first_review_minutes,
@@ -22,18 +27,18 @@ export class AnalyticsService{
         FROM quote_requests q LEFT JOIN LATERAL(SELECT COUNT(*) AS item_count FROM quote_request_items WHERE quote_request_id=q.id)i ON TRUE`),
       this.database.query(`SELECT i.product_title_snapshot AS label,COUNT(*)::int AS request_count,SUM(i.quantity)::numeric(14,3) AS requested_quantity
         FROM quote_request_items i GROUP BY i.product_title_snapshot ORDER BY request_count DESC LIMIT 10`),
-      this.database.query(`SELECT c.title_ar AS label,COUNT(*)::int AS request_count FROM quote_request_items i
-        JOIN products p ON p.id=i.product_id JOIN categories c ON c.id=p.category_id GROUP BY c.id ORDER BY request_count DESC LIMIT 10`),
-      this.database.query(`SELECT b.title_ar AS label,COUNT(*)::int AS request_count FROM quote_request_items i
-        JOIN products p ON p.id=i.product_id JOIN brands b ON b.id=p.brand_id GROUP BY b.id ORDER BY request_count DESC LIMIT 10`),
+      this.database.query(`SELECT category_title_snapshot AS label,COUNT(*)::int AS request_count FROM quote_request_items
+        WHERE category_title_snapshot IS NOT NULL GROUP BY category_id_snapshot,category_title_snapshot ORDER BY request_count DESC LIMIT 10`),
+      this.database.query(`SELECT brand_title_snapshot AS label,COUNT(*)::int AS request_count FROM quote_request_items
+        WHERE brand_title_snapshot IS NOT NULL GROUP BY brand_id_snapshot,brand_title_snapshot ORDER BY request_count DESC LIMIT 10`),
       this.database.query(`SELECT COALESCE(city,'Unknown') AS label,COUNT(*)::int AS request_count FROM quote_requests GROUP BY city ORDER BY request_count DESC LIMIT 10`),
       this.database.query(`SELECT source AS label,COUNT(*)::int AS request_count FROM quote_requests GROUP BY source ORDER BY request_count DESC`),
       this.database.query(`SELECT COALESCE(u.full_name,'Unassigned') AS label,COUNT(*)::int AS request_count FROM quote_requests q
         LEFT JOIN admin_users u ON u.id=q.assigned_to_admin_user_id GROUP BY u.id,u.full_name ORDER BY request_count DESC`),
     ]);
-    const cartCount=Number(carts.rows[0]?.carts??0),submitted=Number(carts.rows[0]?.submitted??0);
+    const cartCount=Number(carts.rows[0]?.eligible_carts??0),submitted=Number(carts.rows[0]?.submitted??0);
     return{statusCounts:status.rows,contactCount:contacts.rows[0]?.count??0,requestCount:requests.rows[0]?.count??0,
-      cartConversionRate:cartCount?Number(((submitted/cartCount)*100).toFixed(2)):0,averages:averages.rows[0],
+      cartConversionRate:cartCount?Number(((submitted/cartCount)*100).toFixed(2)):0,cartMetrics:carts.rows[0],averages:averages.rows[0],
       topProducts:products.rows,topCategories:categories.rows,topBrands:brands.rows,byCity:cities.rows,bySource:sources.rows,byAgent:agents.rows};
   }
 }

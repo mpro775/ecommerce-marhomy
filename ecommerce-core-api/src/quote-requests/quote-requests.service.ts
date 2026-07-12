@@ -10,6 +10,7 @@ import * as ExcelJS from 'exceljs';
 interface CartRow{id:string;status:string;expires_at:Date|null}
 interface ItemRow{id:string;product_id:string;variant_id:string|null;quantity:string;unit_snapshot:string;item_note:string|null;
   selected_options:Record<string,unknown>;title_ar:string;title_en:string|null;sku:string|null;specifications:Record<string,unknown>;
+  category_id:string|null;category_title_ar:string|null;brand_id:string|null;brand_title_ar:string|null;
   product_status:string;quote_enabled:boolean;availability_status:string;minimum_request_quantity:string;
   maximum_request_quantity:string|null;quantity_step:string;variant_title_ar:string|null;variant_title_en:string|null;
   variant_sku:string|null;variant_attributes:Record<string,unknown>|null;variant_active:boolean|null;image_url:string|null}
@@ -32,11 +33,13 @@ export class QuoteRequestsService{
       const cart=cartResult.rows[0];if(!cart)throw new NotFoundException('Quote cart not found');
       if(cart.status!=='open')throw new BadRequestException('Quote cart is not open');
       if(cart.expires_at&&new Date(cart.expires_at).getTime()<=Date.now())throw new BadRequestException('Quote cart has expired');
-      const itemsResult=await client.query<ItemRow>(`SELECT i.*,p.title_ar,p.title_en,p.sku,p.specifications,p.status AS product_status,
+      const itemsResult=await client.query<ItemRow>(`SELECT i.*,p.title_ar,p.title_en,p.sku,p.specifications,p.category_id,p.brand_id,
+        c.title_ar AS category_title_ar,b.title_ar AS brand_title_ar,p.status AS product_status,
         p.quote_enabled,p.availability_status,p.minimum_request_quantity,p.maximum_request_quantity,p.quantity_step,
         v.title_ar AS variant_title_ar,v.title_en AS variant_title_en,v.sku AS variant_sku,v.attributes AS variant_attributes,
         v.is_active AS variant_active,(SELECT image_url FROM product_images WHERE product_id=p.id ORDER BY is_primary DESC,sort_order LIMIT 1) AS image_url
-        FROM quote_cart_items i JOIN products p ON p.id=i.product_id LEFT JOIN product_variants v ON v.id=i.variant_id
+        FROM quote_cart_items i JOIN products p ON p.id=i.product_id LEFT JOIN categories c ON c.id=p.category_id
+        LEFT JOIN brands b ON b.id=p.brand_id LEFT JOIN product_variants v ON v.id=i.variant_id
         WHERE i.quote_cart_id=$1 ORDER BY i.created_at FOR UPDATE OF i`,[cart.id]);
       if(!itemsResult.rows.length)throw new BadRequestException('Quote cart is empty');
       for(const item of itemsResult.rows)this.validateItem(item);
@@ -64,10 +67,12 @@ export class QuoteRequestsService{
       const requestId=request.rows[0].id;
       for(let index=0;index<itemsResult.rows.length;index++){const item=itemsResult.rows[index];
         await client.query(`INSERT INTO quote_request_items(quote_request_id,product_id,variant_id,product_title_snapshot,
-          variant_title_snapshot,sku_snapshot,image_url_snapshot,attributes_snapshot,quantity,unit_snapshot,item_note,sort_order)
-          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,[requestId,item.product_id,item.variant_id,item.title_ar,
+          variant_title_snapshot,sku_snapshot,image_url_snapshot,attributes_snapshot,quantity,unit_snapshot,item_note,sort_order,
+          category_id_snapshot,category_title_snapshot,brand_id_snapshot,brand_title_snapshot)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,[requestId,item.product_id,item.variant_id,item.title_ar,
           item.variant_title_ar,item.variant_sku??item.sku,item.image_url,{specifications:item.specifications,selectedOptions:item.selected_options,
-          variantAttributes:item.variant_attributes??{}},item.quantity,item.unit_snapshot,item.item_note,index]);}
+          variantAttributes:item.variant_attributes??{}},item.quantity,item.unit_snapshot,item.item_note,index,item.category_id,item.category_title_ar,
+          item.brand_id,item.brand_title_ar]);}
       await client.query(`INSERT INTO quote_request_status_history(quote_request_id,new_status,note) VALUES($1,'new','Request submitted')`,[requestId]);
       await client.query(`UPDATE quote_carts SET status='submitted',submitted_at=NOW(),updated_at=NOW() WHERE id=$1`,[cart.id]);
       const notification=await client.query<{id:string}>(`INSERT INTO notifications(type,title,body,entity_type,entity_id)

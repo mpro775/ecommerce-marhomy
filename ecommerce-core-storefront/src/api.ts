@@ -8,6 +8,6 @@ export async function api<T>(path:string,options:RequestInit={}):Promise<T>{
 export async function track(eventName:string,data:Record<string,unknown>={}):Promise<void>{
   const anonymousId=getAnonymousId();await api('/analytics/events',{method:'POST',body:JSON.stringify({eventName,anonymousId,source:'web',...data})}).catch(()=>undefined);
 }
-function getAnonymousId():string{
+export function getAnonymousId():string{
   let id=localStorage.getItem('rfq-anonymous-id');if(!id){id=crypto.randomUUID();localStorage.setItem('rfq-anonymous-id',id);}return id;
 }

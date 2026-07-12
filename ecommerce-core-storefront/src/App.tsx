@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { api, track } from './api';
+import { api, getAnonymousId, track } from './api';
 import { brandConfig } from './config/brand.config';
 type Row=Record<string,any>;type Lang='ar'|'en';
 type Page={name:'home'|'catalog'|'cart'|'static'|'success';key?:string;data?:Row}|{name:'product';slug:string};
@@ -24,7 +24,7 @@ export function App(){
   const navigate=(next:Page)=>{setPage(next);setMenu(false);window.scrollTo({top:0,behavior:'smooth'});};
   const ensureCart=async():Promise<string>=>{
     const current=localStorage.getItem('rfq-cart-token');if(current)return current;
-    const created=await api<Row>('/quote-carts',{method:'POST',body:JSON.stringify({visitorId:crypto.randomUUID()})});
+    const created=await api<Row>('/quote-carts',{method:'POST',body:JSON.stringify({visitorId:getAnonymousId()})});
     localStorage.setItem('rfq-cart-token',created.public_token);return created.public_token;
   };
   const add=async(product:Row,quantity:number,variantId?:string,note?:string)=>{
@@ -83,9 +83,9 @@ function Catalog({lang,navigate,add,initialCategory}:{lang:Lang;navigate:(page:P
     const query=new URLSearchParams({...search&&{search},...category&&{category},...brand&&{brand},...filterValues&&{filterValues},pageSize:'60'});
     api<{items:Row[]}>('/catalog/products?'+query).then(value=>setProducts(value.items));},[search,category,brand,selectedFilters]);
   useEffect(()=>{api<Row[]>('/catalog/categories').then(setCategories);api<Row[]>('/catalog/brands').then(setBrands);
-    api<Row[]>('/catalog/filters').then(setFilters);void track('category_viewed');},[]);
-  useEffect(()=>{if(category)void track('category_viewed');},[category]);
-  useEffect(()=>{if(brand)void track('brand_viewed');},[brand]);
+    api<Row[]>('/catalog/filters').then(setFilters);},[]);
+  useEffect(()=>{const selected=categories.find(row=>row.slug===category);if(selected)void track('category_viewed',{categoryId:selected.id});},[category,categories]);
+  useEffect(()=>{const selected=brands.find(row=>row.slug===brand);if(selected)void track('brand_viewed',{brandId:selected.id});},[brand,brands]);
   return <main className="section"><div className="container"><div className="section-head"><h1>{t.all}</h1></div><div className="filters">
     <input placeholder={t.search} value={search} onChange={e=>setSearch(e.target.value)}/><select value={category} onChange={e=>setCategory(e.target.value)}><option value="">{lang==='ar'?'كل التصنيفات':'All categories'}</option>
       {categories.map(row=><option key={row.id} value={row.slug}>{title(row,lang)}</option>)}</select><select value={brand} onChange={e=>setBrand(e.target.value)}><option value="">{lang==='ar'?'كل العلامات':'All brands'}</option>

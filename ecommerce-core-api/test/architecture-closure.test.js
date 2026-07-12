@@ -19,10 +19,10 @@ test('source has no tenant, financial, fulfillment, or stock domain remnants',()
     't'+'ax','inven'+'tory','ware'+'house','ship'+'ment','pay'+'ment','cou'+'pon','loy'+'alty','affil'+'iate','aban'+'doned'];
   for(const fragment of fragments)assert.equal(content.toLowerCase().includes(fragment.toLowerCase()),false,'found '+fragment);
 });
-test('baseline consists of nine ordered reversible migrations',()=>{
+test('baseline consists of ten ordered reversible migrations',()=>{
   const names=fs.readdirSync(path.join(root,'migrations'));const up=names.filter(name=>name.endsWith('.up.sql')).sort();
-  const down=names.filter(name=>name.endsWith('.down.sql')).sort();assert.equal(up.length,9);assert.equal(down.length,9);
-  assert.deepEqual(up.map(name=>name.slice(0,3)),['001','002','003','004','005','006','007','008','009']);
+  const down=names.filter(name=>name.endsWith('.down.sql')).sort();assert.equal(up.length,10);assert.equal(down.length,10);
+  assert.deepEqual(up.map(name=>name.slice(0,3)),['001','002','003','004','005','006','007','008','009','010']);
   for(const name of up)assert.ok(names.includes(name.replace('.up.sql','.down.sql')));
 });
 test('catalog schema uses descriptive request fields and decimal quantity rules',()=>{
@@ -36,4 +36,13 @@ test('submitted request snapshots survive later catalog deletion',()=>{
   assert.match(carts,/product_id UUID NOT NULL REFERENCES products\(id\) ON DELETE CASCADE/);
   assert.match(requests,/product_id UUID REFERENCES products\(id\) ON DELETE SET NULL/);
   assert.match(requests,/variant_id UUID REFERENCES product_variants\(id\) ON DELETE SET NULL/);
+});
+test('analytics snapshots and cart maintenance remain independent of live catalog rows',()=>{
+  const migration=fs.readFileSync(path.join(root,'migrations','010_harden_analytics.up.sql'),'utf8');
+  const analytics=fs.readFileSync(path.join(root,'src','analytics','analytics.service.ts'),'utf8');
+  assert.match(migration,/category_id_snapshot UUID/);assert.match(migration,/category_title_snapshot VARCHAR/);
+  assert.match(migration,/brand_id_snapshot UUID/);assert.match(migration,/brand_title_snapshot VARCHAR/);
+  assert.match(migration,/is_suspicious BOOLEAN/);assert.match(migration,/archived_at TIMESTAMPTZ/);
+  assert.match(analytics,/NOT is_suspicious/);assert.match(analytics,/EXISTS\(\s*SELECT 1 FROM quote_cart_items/);
+  assert.doesNotMatch(analytics,/JOIN products p ON p\.id=i\.product_id JOIN categories/);
 });

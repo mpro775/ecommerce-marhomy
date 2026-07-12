@@ -7,6 +7,7 @@
     "dev": "tsx watch src/main.ts",
     "clean:dist": "node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('tsconfig.build.tsbuildinfo',{force:true});fs.rmSync('tsconfig.tsbuildinfo',{force:true});\"",
     "worker:outbox": "tsx src/workers/outbox.worker.ts",
+    "worker:carts": "tsx src/workers/cart-maintenance.worker.ts",
     "admin:create": "node scripts/create-admin.mjs",
     "check:mojibake": "node scripts/check-mojibake.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",

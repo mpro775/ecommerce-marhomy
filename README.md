@@ -2,7 +2,7 @@
 
 This repository contains:
 
-- `ecommerce-core-api`: NestJS/PostgreSQL API and outbox worker.
+- `ecommerce-core-api`: NestJS/PostgreSQL API, outbox worker, and periodic cart-maintenance worker.
 - `ecommerce-core-admin`: administration dashboard on port 5173.
 - `ecommerce-core-storefront`: public Arabic/English catalog on port 5174.
 
