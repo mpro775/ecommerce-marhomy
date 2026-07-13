@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
@@ -10,10 +11,17 @@ if (!['up', 'down'].includes(command)) {
   throw new Error('Usage: node scripts/migrate.mjs <up|down>');
 }
 
-const connectionString =
-  process.env.DATABASE_URL ?? 'postgres://ecommerce_core:password@localhost:5432/ecommerce_core_rfq';
+const connectionString = process.env.DATABASE_URL;
 
-const client = new pg.Client({ connectionString });
+if (!connectionString) {
+  throw new Error(
+    'DATABASE_URL is not defined. Add it to ecommerce-core-api/.env',
+  );
+}
+
+const client = new pg.Client({
+  connectionString,
+});
 
 function normalizeSql(sql) {
   if (!sql) {

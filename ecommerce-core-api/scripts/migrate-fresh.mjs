@@ -1,13 +1,24 @@
+import 'dotenv/config';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import pg from 'pg';
-if(process.env.NODE_ENV==='production'&&process.env.ALLOW_DESTRUCTIVE_MIGRATION!=='true'){
+
+if (
+  process.env.NODE_ENV === 'production' &&
+  process.env.ALLOW_DESTRUCTIVE_MIGRATION !== 'true'
+) {
   throw new Error('migrate:fresh is disabled in production');
 }
-const directory=path.resolve('migrations');
-const connectionString=process.env.DATABASE_URL??'postgres://ecommerce_core:password@localhost:5432/ecommerce_core_rfq';
-const client=new pg.Client({connectionString});
+
+const directory = path.resolve('migrations');
+const connectionString = process.env.DATABASE_URL;
+
+if (!connectionString) {
+  throw new Error('DATABASE_URL is not defined');
+}
+
+const client = new pg.Client({ connectionString });
 await client.connect();
 try{
   await client.query('DROP SCHEMA IF EXISTS public CASCADE');

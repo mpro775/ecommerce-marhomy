@@ -1,8 +1,18 @@
+import 'dotenv/config';
 import pg from 'pg';
 import argon2 from 'argon2';
+
+const connectionString = process.env.DATABASE_URL;
+
+if (!connectionString) {
+  throw new Error('DATABASE_URL is not defined');
+}
+
 const [email,fullName,password,roleName='owner']=process.argv.slice(2);
 if(!email||!fullName||!password)throw new Error('Usage: npm run admin:create -- <email> <full-name> <password> [role]');
-const client=new pg.Client({connectionString:process.env.DATABASE_URL??'postgres://ecommerce_core:password@localhost:5432/ecommerce_core_rfq'});
+
+const client = new pg.Client({ connectionString });
+
 await client.connect();
 try{
   await client.query('BEGIN');const hash=await argon2.hash(password,{type:argon2.argon2id});
