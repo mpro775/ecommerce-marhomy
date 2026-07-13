@@ -23,7 +23,7 @@ export class TeamService{
     const token=randomBytes(36).toString('base64url'),hash=this.hash(token),expiresAt=new Date(Date.now()+72*3600000);
     const result=await this.database.query<{id:string}>(`INSERT INTO admin_invites(email,full_name,token_hash,role_id,invited_by_admin_user_id,expires_at)
       VALUES($1,$2,$3,$4,$5,$6) RETURNING id`,[input.email.toLowerCase(),input.fullName,hash,role.rows[0].id,actor.id,expiresAt]);
-    await this.email.send([input.email],'Admin invitation','Accept your invitation: '+this.config.get<string>('APP_URL')+'/accept-invite?token='+token);
+    await this.email.send([input.email],'Admin invitation','Accept your invitation: '+this.config.get<string>('ADMIN_APP_URL')+'/accept-invite?token='+token);
     return{id:result.rows[0].id,expiresAt};
   }
   async accept(input:AcceptInviteDto):Promise<void>{
@@ -69,7 +69,7 @@ export class TeamService{
     if(!user.rows[0])return;const token=randomBytes(36).toString('base64url');
     await this.database.query(`INSERT INTO admin_password_resets(admin_user_id,token_hash,expires_at)
       VALUES($1,$2,NOW()+INTERVAL '1 hour')`,[user.rows[0].id,this.hash(token)]);
-    await this.email.send([user.rows[0].email],'Password reset','Reset your password: '+this.config.get<string>('APP_URL')+'/reset-password?token='+token);
+    await this.email.send([user.rows[0].email],'Password reset','Reset your password: '+this.config.get<string>('ADMIN_APP_URL')+'/reset-password?token='+token);
   }
   async reset(input:ResetPasswordDto):Promise<void>{
     const passwordHash=await argon2.hash(input.password,{type:argon2.argon2id});

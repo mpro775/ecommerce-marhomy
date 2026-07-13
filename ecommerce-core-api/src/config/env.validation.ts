@@ -8,7 +8,7 @@ export const envValidationSchema = Joi.object({
   DATABASE_POOL_SIZE: Joi.number().integer().min(1).max(50).default(10),
   JWT_ACCESS_SECRET: secret, JWT_ACCESS_EXPIRES_IN: Joi.string().default('15m'),
   REFRESH_TOKEN_TTL_DAYS: Joi.number().integer().min(1).max(90).default(30),
-  APP_NAME: Joi.string().default('Catalog RFQ'), APP_URL: Joi.string().uri({scheme:['http','https']}).default('http://localhost:5174'),
+  APP_NAME: Joi.string().default('Catalog RFQ'), STOREFRONT_URL: Joi.string().uri({scheme:['http','https']}).default('http://localhost:5174'), ADMIN_APP_URL: Joi.string().uri({scheme:['http','https']}).default('http://localhost:5173'),
   APP_TIMEZONE: Joi.string().default('Asia/Aden'), QUOTE_REQUEST_PREFIX: Joi.string().alphanum().uppercase().max(10).default('RFQ'),
   QUOTE_CART_TTL_DAYS: Joi.number().integer().min(1).max(90).default(14),
   QUOTE_CART_RETENTION_DAYS: Joi.number().integer().min(1).max(3650).default(180),

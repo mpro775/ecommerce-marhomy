@@ -26,7 +26,7 @@ docker compose ps
 - API health: `http://localhost:3000/api/health`
 - Swagger: `http://localhost:3000/docs`
 
-Before an internet-facing deployment, set at least `POSTGRES_PASSWORD`, `JWT_ACCESS_SECRET` (32 or more characters), `APP_URL`, and `ALLOWED_ORIGINS` in a root `.env` file. Configure the SMTP, S3-compatible storage, and Sentry variables from `ecommerce-core-api/.env.production.example` as needed. Put a TLS reverse proxy or load balancer in front of ports 8080, 8081, and 3000; the two web containers proxy same-origin `/api` requests to the API container.
+Before an internet-facing deployment, set at least `POSTGRES_PASSWORD`, `JWT_ACCESS_SECRET` (32 or more characters), `STOREFRONT_URL`, `ADMIN_APP_URL`, and `ALLOWED_ORIGINS` in a root `.env` file. Configure the SMTP, S3-compatible storage, and Sentry variables from `ecommerce-core-api/.env.production.example` as needed. Put a TLS reverse proxy or load balancer in front of ports 8080, 8081, and 3000; the two web containers proxy same-origin `/api` requests to the API container.
 
 Useful lifecycle commands:
 

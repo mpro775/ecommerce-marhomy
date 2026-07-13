@@ -5,4 +5,5 @@ export const PERMISSIONS={
   mediaRead:'media:read',mediaWrite:'media:write',quoteRequestsRead:'quote_requests:read',quoteRequestsWrite:'quote_requests:write',
   quoteRequestsAssign:'quote_requests:assign',quoteRequestsExport:'quote_requests:export',contactsRead:'contacts:read',
   contactsWrite:'contacts:write',notificationsRead:'notifications:read',notificationsWrite:'notifications:write',
-  analyticsRead:'analytics:read',teamRead:'team:read',teamWrite:'team:write',auditRead:'audit:read'}as const;
+  analyticsRead:'analytics:read',teamRead:'team:read',teamWrite:'team:write',auditRead:'audit:read',
+  systemManage:'system:manage'}as const;

@@ -2,26 +2,50 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DatabaseService } from '../database/database.service';
 import { EmailService } from '../email/email.service';
-interface OutboxRow{id:string;event_type:string;payload:Record<string,unknown>;attempt_count:number}
+import * as os from 'os';
+interface OutboxRow{id:string;event_type:string;payload:Record<string,unknown>;attempt_count:number;max_attempts:number}
 @Injectable()
 export class OutboxService{
   private readonly logger=new Logger(OutboxService.name);
   constructor(private readonly database:DatabaseService,private readonly email:EmailService,private readonly config:ConfigService){}
   async processBatch(limit=25):Promise<number>{
     await this.createOverdueNotifications();
+    
+    // Recover stuck events
+    await this.database.query(`
+      UPDATE outbox_events
+      SET status = 'failed', locked_at = NULL, locked_by = NULL
+      WHERE status = 'processing' AND locked_at < NOW() - INTERVAL '5 minutes'
+    `);
+
+    const workerId = os.hostname() + '-' + process.pid;
     const events=await this.database.transaction(async(client)=>{
-      const result=await client.query<OutboxRow>(`SELECT id,event_type,payload,attempt_count FROM outbox_events
+      const result=await client.query<OutboxRow>(`SELECT id,event_type,payload,attempt_count,max_attempts FROM outbox_events
         WHERE status IN ('pending','failed') AND available_at<=NOW() ORDER BY created_at LIMIT $1 FOR UPDATE SKIP LOCKED`,[limit]);
-      if(result.rows.length)await client.query(`UPDATE outbox_events SET status='processing',updated_at=NOW() WHERE id=ANY($1::uuid[])`,[result.rows.map((row)=>row.id)]);
+      if(result.rows.length)await client.query(`UPDATE outbox_events SET status='processing', locked_at=NOW(), locked_by=$2, updated_at=NOW() WHERE id=ANY($1::uuid[])`,[result.rows.map((row)=>row.id), workerId]);
       return result.rows;
     });
     for(const event of events){
-      try{await this.deliver(event);await this.database.query(`UPDATE outbox_events SET status='sent',processed_at=NOW(),updated_at=NOW() WHERE id=$1`,[event.id]);}
+      try{await this.deliver(event);await this.database.query(`UPDATE outbox_events SET status='sent',processed_at=NOW(),updated_at=NOW(),locked_at=NULL,locked_by=NULL WHERE id=$1`,[event.id]);}
       catch(error){const message=error instanceof Error?error.message:String(error);const delay=Math.min(3600,Math.pow(2,event.attempt_count+1)*30);
-        await this.database.query(`UPDATE outbox_events SET status='failed',attempt_count=attempt_count+1,last_error=$2,
-          available_at=NOW()+($3::text||' seconds')::interval,updated_at=NOW() WHERE id=$1`,[event.id,message,delay]);
+        if (event.attempt_count + 1 >= event.max_attempts) {
+          await this.database.query(`UPDATE outbox_events SET status='dead',attempt_count=attempt_count+1,last_error=$2,updated_at=NOW(),locked_at=NULL,locked_by=NULL WHERE id=$1`,[event.id,message]);
+        } else {
+          await this.database.query(`UPDATE outbox_events SET status='failed',attempt_count=attempt_count+1,last_error=$2,
+            available_at=NOW()+($3::text||' seconds')::interval,updated_at=NOW(),locked_at=NULL,locked_by=NULL WHERE id=$1`,[event.id,message,delay]);
+        }
         this.logger.error('Outbox delivery failed: '+message);}
     }return events.length;
+  }
+
+  async retryDeadEvents(): Promise<number> {
+    const result = await this.database.query(`
+      UPDATE outbox_events
+      SET status = 'pending', attempt_count = 0, available_at = NOW(), updated_at = NOW(), locked_at = NULL, locked_by = NULL
+      WHERE status = 'dead'
+      RETURNING id
+    `);
+    return result.rowCount ?? 0;
   }
   private async deliver(event:OutboxRow):Promise<void>{
     const recipients=(this.config.get<string>('QUOTE_NOTIFICATION_EMAILS','')??'').split(',').map((item)=>item.trim()).filter(Boolean);

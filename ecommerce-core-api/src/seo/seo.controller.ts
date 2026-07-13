@@ -11,7 +11,7 @@ export class SeoController{
 
   @Get('sitemap.xml')
   async sitemap(@Res()response:Response):Promise<void>{
-    const base=this.config.get<string>('APP_URL','http://localhost:5174').replace(/\/$/,'');
+    const base=this.config.get<string>('STOREFRONT_URL','http://localhost:5174').replace(/\/$/,'');
     const result=await this.database.query<SitemapRow>(`SELECT '/products/'||slug AS path,updated_at FROM products WHERE status='published'
       UNION ALL SELECT '/categories/'||slug AS path,updated_at FROM categories WHERE is_active=TRUE
       UNION ALL SELECT '/brands/'||slug AS path,updated_at FROM brands WHERE is_active=TRUE ORDER BY path`);

@@ -196,6 +196,7 @@ export class ProductsService{
     const existingIds=existingResult.rows.map((r:any)=>r.id);
     const incomingIds=variants.map(v=>v.id).filter(Boolean) as string[];
     const toDelete=existingIds.filter(eid=>!incomingIds.includes(eid));
+    await client.query('UPDATE product_variants SET is_default = FALSE, updated_at = NOW() WHERE product_id = $1 AND is_default = TRUE', [id]);
     for(const variant of variants){
       const relationalAttributes=variant.attributeValueIds?await this.attributesFromValues(client,variant.attributeValueIds):null;
       const attributes=relationalAttributes??variant.attributes??{};
@@ -212,7 +213,7 @@ export class ProductsService{
         for(const valueId of variant.attributeValueIds)await client.query(
           'INSERT INTO variant_attribute_values(variant_id,attribute_value_id) VALUES($1,$2)',[variantId,valueId]);}
     }
-    if(toDelete.length>0)await client.query(`UPDATE product_variants SET is_active=false,updated_at=NOW() WHERE id=ANY($1) AND product_id=$2`,[toDelete,id]);
+    if(toDelete.length>0)await client.query(`UPDATE product_variants SET is_active=false,is_default=false,updated_at=NOW() WHERE id=ANY($1) AND product_id=$2`,[toDelete,id]);
   }
   private async replaceRelated(client:DbExecutor,id:string,related:string[]):Promise<void>{
     await client.query('DELETE FROM product_related_products WHERE product_id=$1',[id]);
