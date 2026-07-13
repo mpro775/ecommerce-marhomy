@@ -13,6 +13,8 @@ export class SeoController{
   async sitemap(@Res()response:Response):Promise<void>{
     const base=this.config.get<string>('STOREFRONT_URL','http://localhost:5174').replace(/\/$/,'');
     const result=await this.database.query<SitemapRow>(`SELECT '/products/'||slug AS path,updated_at FROM products WHERE status='published'
+      UNION ALL SELECT '/products/'||p.slug||'/models/'||replace(m.model_code,' ','%20') AS path,m.updated_at
+        FROM product_models m JOIN products p ON p.id=m.product_id WHERE p.status='published' AND m.is_active AND m.availability_status<>'hidden'
       UNION ALL SELECT '/categories/'||slug AS path,updated_at FROM categories WHERE is_active=TRUE
       UNION ALL SELECT '/brands/'||slug AS path,updated_at FROM brands WHERE is_active=TRUE ORDER BY path`);
     const staticPaths=['/','/products','/about','/contact','/faq'];

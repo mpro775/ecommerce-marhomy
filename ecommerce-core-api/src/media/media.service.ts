@@ -34,6 +34,7 @@ export class MediaService{
       const row=result.rows[0];if(!row)throw new NotFoundException('Media asset not found');
       const references=await client.query<{source:string}>(`SELECT 'product' AS source FROM product_images
         WHERE media_asset_id=$1 OR image_url=$2
+        UNION ALL SELECT 'product model' FROM product_model_images WHERE media_asset_id=$1 OR image_url=$2
         UNION ALL SELECT 'category' FROM categories WHERE image_url=$2
         UNION ALL SELECT 'brand' FROM brands WHERE logo_url=$2 LIMIT 1`,[id,row.public_url]);
       if(references.rows[0])throw new ConflictException(`Media asset is still used by a ${references.rows[0].source}`);

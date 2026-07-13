@@ -1,0 +1,3 @@
+import { useEffect, useState } from 'react';
+import type { Row } from '../../api';
+export function ModelGallery({images,title}:{images:Row[];title:string}){const[selected,setSelected]=useState(0);useEffect(()=>setSelected(0),[images]);const image=images[selected]??images[0];return <div><div className="gallery-main">{image?<img src={image.image_url} alt={image.alt_text_ar??title} width="900" height="675"/>:<span>لا توجد صورة</span>}</div>{images.length>1&&<div className="thumbs">{images.map((item,index)=><button className={'thumb '+(selected===index?'active':'')} key={item.id??item.image_url} onClick={()=>setSelected(index)}><img loading="lazy" src={item.image_url} alt={item.alt_text_ar??''}/></button>)}</div>}</div>;}

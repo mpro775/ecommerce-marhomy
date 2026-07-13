@@ -8,12 +8,11 @@ import type { AuthUser } from '../auth/auth.types';
 import type { CreateQuoteNoteDto, ListQuoteRequestsQuery, SubmitQuoteRequestDto, UpdateAssigneeDto, UpdateContactDto, UpdateQuoteStatusDto } from './dto';
 import * as ExcelJS from 'exceljs';
 interface CartRow{id:string;status:string;expires_at:Date|null}
-interface ItemRow{id:string;product_id:string;variant_id:string|null;quantity:string;unit_snapshot:string;item_note:string|null;
-  selected_options:Record<string,unknown>;title_ar:string;title_en:string|null;sku:string|null;specifications:Record<string,unknown>;
-  category_id:string|null;category_title_ar:string|null;brand_id:string|null;brand_title_ar:string|null;
-  product_status:string;quote_enabled:boolean;availability_status:string;minimum_request_quantity:string;
-  maximum_request_quantity:string|null;quantity_step:string;variant_title_ar:string|null;variant_title_en:string|null;
-  variant_sku:string|null;variant_attributes:Record<string,unknown>|null;variant_active:boolean|null;image_url:string|null}
+interface ItemRow{id:string;product_id:string;model_id:string;quantity:string;unit_snapshot:string;item_note:string|null;
+  title_ar:string;product_slug:string;category_id:string;category_title_ar:string|null;brand_id:string|null;brand_title_ar:string|null;
+  product_status:string;product_quote_enabled:boolean;model_code:string;model_title_ar:string|null;model_title_en:string|null;
+  model_sku:string|null;model_description:string|null;model_active:boolean;model_quote_enabled:boolean;availability_status:string;
+  minimum_request_quantity:string;maximum_request_quantity:string|null;quantity_step:string;image_url:string|null;model_specifications:unknown[]}
 export interface QuoteSubmissionResult{requestNumber:string;trackingToken:string;status:string;submittedAt:string}
 @Injectable()
 export class QuoteRequestsService{
@@ -35,14 +34,22 @@ export class QuoteRequestsService{
       const cart=cartResult.rows[0];if(!cart)throw new NotFoundException('Quote cart not found');
       if(cart.status!=='open')throw new BadRequestException('Quote cart is not open');
       if(cart.expires_at&&new Date(cart.expires_at).getTime()<=Date.now())throw new BadRequestException('Quote cart has expired');
-      const itemsResult=await client.query<ItemRow>(`SELECT i.*,p.title_ar,p.title_en,p.sku,p.specifications,p.category_id,p.brand_id,
-        c.title_ar AS category_title_ar,b.title_ar AS brand_title_ar,p.status AS product_status,
-        p.quote_enabled,p.availability_status,p.minimum_request_quantity,p.maximum_request_quantity,p.quantity_step,
-        v.title_ar AS variant_title_ar,v.title_en AS variant_title_en,v.sku AS variant_sku,v.attributes AS variant_attributes,
-        v.is_active AS variant_active,(SELECT image_url FROM product_images WHERE product_id=p.id ORDER BY is_primary DESC,sort_order LIMIT 1) AS image_url
-        FROM quote_cart_items i JOIN products p ON p.id=i.product_id LEFT JOIN categories c ON c.id=p.category_id
-        LEFT JOIN brands b ON b.id=p.brand_id LEFT JOIN product_variants v ON v.id=i.variant_id
-        WHERE i.quote_cart_id=$1 ORDER BY i.created_at FOR UPDATE OF i`,[cart.id]);
+      const itemsResult=await client.query<ItemRow>(`SELECT i.*,p.title_ar,p.slug AS product_slug,p.primary_category_id AS category_id,p.brand_id,
+        c.title_ar AS category_title_ar,b.title_ar AS brand_title_ar,p.status AS product_status,p.quote_enabled AS product_quote_enabled,
+        m.model_code,m.title_ar AS model_title_ar,m.title_en AS model_title_en,m.sku AS model_sku,
+        COALESCE(m.description_ar,m.description_en) AS model_description,m.is_active AS model_active,m.quote_enabled AS model_quote_enabled,
+        m.availability_status,m.minimum_request_quantity,m.maximum_request_quantity,m.quantity_step,
+        COALESCE((SELECT image_url FROM product_model_images WHERE model_id=m.id ORDER BY is_primary DESC,sort_order LIMIT 1),
+          (SELECT image_url FROM product_images WHERE product_id=p.id ORDER BY is_primary DESC,sort_order LIMIT 1)) AS image_url,
+        COALESCE((SELECT json_agg(jsonb_build_object('slug',sd.slug,'nameAr',sd.name_ar,'nameEn',sd.name_en,
+          'valueAr',COALESCE(sv.display_value_ar,sv.value_text_ar,o.label_ar,sv.value_number::text,sv.value_boolean::text),
+          'valueEn',COALESCE(sv.display_value_en,sv.value_text_en,o.label_en,sv.value_number::text,sv.value_boolean::text),
+          'unitAr',sd.unit_ar,'unitEn',sd.unit_en) ORDER BY sv.sort_order,sd.sort_order)
+          FROM product_model_specification_values sv JOIN specification_definitions sd ON sd.id=sv.specification_id
+          LEFT JOIN specification_options o ON o.id=sv.option_id WHERE sv.model_id=m.id),'[]') AS model_specifications
+        FROM quote_cart_items i JOIN products p ON p.id=i.product_id JOIN categories c ON c.id=p.primary_category_id
+        LEFT JOIN brands b ON b.id=p.brand_id JOIN product_models m ON m.id=i.model_id
+        WHERE i.quote_cart_id=$1 ORDER BY i.sort_order,i.created_at FOR UPDATE OF i,p,m`,[cart.id]);
       if(!itemsResult.rows.length)throw new BadRequestException('Quote cart is empty');
       for(const item of itemsResult.rows)this.validateItem(item);
       const phone=this.normalizePhone(input.phone);
@@ -68,13 +75,16 @@ export class QuoteRequestsService{
         sanitizeText(input.customerNote,3000),sanitizeText(input.source,30)??'web',submittedAt,context.ipAddress,context.userAgent]);
       const requestId=request.rows[0].id;
       for(let index=0;index<itemsResult.rows.length;index++){const item=itemsResult.rows[index];
-        await client.query(`INSERT INTO quote_request_items(quote_request_id,product_id,variant_id,product_title_snapshot,
-          variant_title_snapshot,sku_snapshot,image_url_snapshot,attributes_snapshot,quantity,unit_snapshot,item_note,sort_order,
-          category_id_snapshot,category_title_snapshot,brand_id_snapshot,brand_title_snapshot)
-          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,[requestId,item.product_id,item.variant_id,item.title_ar,
-          item.variant_title_ar,item.variant_sku??item.sku,item.image_url,{specifications:item.specifications,selectedOptions:item.selected_options,
-          variantAttributes:item.variant_attributes??{}},item.quantity,item.unit_snapshot,item.item_note,index,item.category_id,item.category_title_ar,
-          item.brand_id,item.brand_title_ar]);}
+        await client.query(`INSERT INTO quote_request_items(quote_request_id,product_id,model_id,product_title_snapshot,product_slug_snapshot,
+          model_code_snapshot,model_title_snapshot,sku_snapshot,image_url_snapshot,model_description_snapshot,specifications_snapshot,
+          availability_snapshot,quantity_rules_snapshot,category_id_snapshot,category_title_snapshot,brand_id_snapshot,brand_title_snapshot,
+          quantity,unit_snapshot,item_note,sort_order)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
+          [requestId,item.product_id,item.model_id,item.title_ar,item.product_slug,item.model_code,item.model_title_ar??item.model_title_en,
+          item.model_sku,item.image_url,item.model_description,JSON.stringify(item.model_specifications),item.availability_status,
+          {minimum:Number(item.minimum_request_quantity),maximum:item.maximum_request_quantity===null?null:Number(item.maximum_request_quantity),
+            step:Number(item.quantity_step),unit:item.unit_snapshot},item.category_id,item.category_title_ar,item.brand_id,item.brand_title_ar,
+          item.quantity,item.unit_snapshot,item.item_note,index]);}
       await client.query(`INSERT INTO quote_request_status_history(quote_request_id,new_status,note) VALUES($1,'new','Request submitted')`,[requestId]);
       await client.query(`UPDATE quote_carts SET status='submitted',submitted_at=NOW(),updated_at=NOW() WHERE id=$1`,[cart.id]);
       const notification=await client.query<{id:string}>(`INSERT INTO notifications(type,title,body,entity_type,entity_id)
@@ -84,7 +94,7 @@ export class QuoteRequestsService{
       await client.query(`INSERT INTO outbox_events(event_type,aggregate_type,aggregate_id,payload)
         VALUES('quote_request_submitted','quote_request',$1,$2)`,[requestId,{requestNumber,fullName:input.fullName,phone,email:input.email??null,itemCount:itemsResult.rows.length}]);
       await client.query(`INSERT INTO catalog_events(event_name,quote_cart_id,quote_request_id,source,city,metadata)
-        VALUES('quote_request_submitted',$1,$2,$3,$4,$5)`,[cart.id,requestId,input.source??'web',sanitizeText(input.city,150),{itemCount:itemsResult.rows.length}]);
+        VALUES('quote_submitted',$1,$2,$3,$4,$5)`,[cart.id,requestId,input.source??'web',sanitizeText(input.city,150),{itemCount:itemsResult.rows.length}]);
       const response:QuoteSubmissionResult={requestNumber,trackingToken,status:'new',submittedAt};
       await client.query(`INSERT INTO idempotency_keys(scope,idempotency_key,request_hash,response_code,response_body,expires_at)
         VALUES('quote_request',$1,$2,201,$3,NOW()+INTERVAL '24 hours')`,[idempotencyKey,requestHash,response]);
@@ -94,6 +104,10 @@ export class QuoteRequestsService{
   async publicStatus(requestNumber:string,token:string):Promise<unknown>{
     const result=await this.database.query(`SELECT request_number,status,submitted_at,updated_at FROM quote_requests
       WHERE request_number=$1 AND public_token=$2`,[requestNumber,token]);
+    if(!result.rows[0])throw new NotFoundException('Quote request not found');return result.rows[0];
+  }
+  async publicStatusByTrackingCode(trackingCode:string):Promise<unknown>{
+    const result=await this.database.query(`SELECT request_number,status,submitted_at,updated_at FROM quote_requests WHERE public_token=$1`,[trackingCode]);
     if(!result.rows[0])throw new NotFoundException('Quote request not found');return result.rows[0];
   }
   async list(query:ListQuoteRequestsQuery):Promise<{items:unknown[];count:number;page:number;pageSize:number}>{
@@ -217,9 +231,8 @@ export class QuoteRequestsService{
     assertSpamSafe(sanitizeText(input.customerNote,3000));
   }
   private validateItem(item:ItemRow):void{
-    if(item.product_status!=='published'||!item.quote_enabled||['temporarily_unavailable','discontinued'].includes(item.availability_status))
-      throw new BadRequestException('A cart product is no longer available');
-    if(item.variant_id&&item.variant_active!==true)throw new BadRequestException('A selected variant is no longer active');
+    if(item.product_status!=='published'||!item.product_quote_enabled||!item.model_active||!item.model_quote_enabled||['hidden','discontinued'].includes(item.availability_status))
+      throw new BadRequestException('A cart model is no longer available');
     assertQuoteQuantity(Number(item.quantity),Number(item.minimum_request_quantity),
       item.maximum_request_quantity===null?null:Number(item.maximum_request_quantity),Number(item.quantity_step));
   }

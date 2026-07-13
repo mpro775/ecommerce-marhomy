@@ -1,53 +1,57 @@
-import { Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { AccessTokenGuard } from '../auth/access-token.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { AuthUser } from '../auth/auth.types';
-import { PermissionsGuard } from '../rbac/permissions.guard';
-import { CatalogService } from './catalog.service';
-import { CreateCatalogValueDto, UpdateCatalogEntryDto, UpdateCatalogValueDto, UpdateCategoryAttributesDto, UpsertCatalogEntryDto } from './dto';
 import { AuditService } from '../audit/audit.service';
+import { PERMISSIONS } from '../rbac/permissions';
+import { PermissionsGuard } from '../rbac/permissions.guard';
+import { RequirePermissions } from '../rbac/require-permissions.decorator';
+import { CatalogService } from './catalog.service';
+import { CreateBrandDto, CreateCategoryDto, CreateSpecificationDto, ReorderCategoriesDto, ReplaceCategorySpecificationsDto, UpdateBrandDto, UpdateCategoryDto, UpdateSpecificationDto } from './dto';
+
 @Controller('catalog')
-export class CatalogController{
+export class CatalogController {
   constructor(private readonly catalog:CatalogService){}
-  @Get('categories')categories():Promise<unknown[]>{return this.catalog.publicCategories();}
-  @Get('categories/:slug')category(@Param('slug')slug:string):Promise<unknown>{return this.catalog.publicCategory(slug);}
-  @Get('brands')brands():Promise<unknown[]>{return this.catalog.publicBrands();}
-  @Get('brands/:slug')brand(@Param('slug')slug:string):Promise<unknown>{return this.catalog.publicBrand(slug);}
-  @Get('filters')filters():Promise<unknown[]>{return this.catalog.publicFilters();}
+  @Get('categories') categories(){return this.catalog.publicCategories();}
+  @Get('categories/:slug/products') categoryProducts(@Param('slug')slug:string){return this.catalog.publicCategoryProducts(slug);}
+  @Get('categories/:slug') category(@Param('slug')slug:string){return this.catalog.publicCategory(slug);}
+  @Get('brands') brands(){return this.catalog.publicBrands();}
+  @Get('brands/:slug') brand(@Param('slug')slug:string){return this.catalog.publicBrand(slug);}
+  @Get('filters') filters(@Query('category')category?:string){return this.catalog.publicFilters(category);}
 }
-@Controller('admin/catalog')
+
+@Controller('admin/categories')
 @UseGuards(AccessTokenGuard,PermissionsGuard)
-export class AdminCatalogController{
+export class AdminCategoriesController {
   constructor(private readonly catalog:CatalogService,private readonly audit:AuditService){}
-  @Get(':kind')
-  list(@Param('kind')kind:'categories'|'brands'|'attributes'|'filters',@CurrentUser()user:AuthUser):Promise<unknown[]>{
-    this.assertPermission(user,kind,'read');return this.catalog.list(kind);}
-  @Post(':kind')
-  async create(@Param('kind')kind:'categories'|'brands'|'attributes'|'filters',@Body()body:UpsertCatalogEntryDto,@CurrentUser()user:AuthUser):Promise<unknown>{
-    this.assertPermission(user,kind,'write');const result=await this.catalog.create(kind,body) as {id:string};
-    await this.audit.log({adminUserId:user.id,action:'catalog.created',entityType:kind,entityId:result.id});return result;}
-  @Patch(':kind/:id')
-  async update(@Param('kind')kind:'categories'|'brands'|'attributes'|'filters',@Param('id')id:string,@Body()body:UpdateCatalogEntryDto,@CurrentUser()user:AuthUser):Promise<unknown>{
-    this.assertPermission(user,kind,'write');const result=await this.catalog.update(kind,id,body);
-    await this.audit.log({adminUserId:user.id,action:'catalog.updated',entityType:kind,entityId:id});return result;}
-  @Delete(':kind/:id')
-  async remove(@Param('kind')kind:'categories'|'brands'|'attributes'|'filters',@Param('id')id:string,@CurrentUser()user:AuthUser):Promise<void>{
-    this.assertPermission(user,kind,'write');await this.catalog.remove(kind,id);
-    await this.audit.log({adminUserId:user.id,action:'catalog.deleted',entityType:kind,entityId:id});}
-  @Post(':kind/:id/values')
-  value(@Param('kind')kind:'attributes'|'filters',@Param('id')id:string,@Body()body:CreateCatalogValueDto,@CurrentUser()user:AuthUser):Promise<unknown>{
-    this.assertPermission(user,kind,'write');return this.catalog.addValue(kind,id,body);}
-  @Patch(':kind/:id/values/:valueId')
-  updateValue(@Param('kind')kind:'attributes'|'filters',@Param('id')id:string,@Param('valueId')valueId:string,
-    @Body()body:UpdateCatalogValueDto,@CurrentUser()user:AuthUser):Promise<unknown>{
-    this.assertPermission(user,kind,'write');return this.catalog.updateValue(kind,id,valueId,body);}
-  @Delete(':kind/:id/values/:valueId')
-  removeValue(@Param('kind')kind:'attributes'|'filters',@Param('id')id:string,@Param('valueId')valueId:string,
-    @CurrentUser()user:AuthUser):Promise<void>{this.assertPermission(user,kind,'write');return this.catalog.removeValue(kind,id,valueId);}
-  @Patch('categories/:id/attributes')
-  categoryAttributes(@Param('id')id:string,@Body()body:UpdateCategoryAttributesDto,@CurrentUser()user:AuthUser):Promise<void>{
-    this.assertPermission(user,'categories','write');return this.catalog.replaceCategoryAttributes(id,body.attributeIds);}
-  private assertPermission(user:AuthUser,kind:string,action:'read'|'write'):void{
-    if(!user.permissions.includes(kind+':'+action))throw new ForbiddenException('Insufficient permissions');
-  }
+  @Get() @RequirePermissions(PERMISSIONS.categoriesRead) list(){return this.catalog.categories();}
+  @Post() @RequirePermissions(PERMISSIONS.categoriesWrite)
+  async create(@Body()body:CreateCategoryDto,@CurrentUser()user:AuthUser){const result=await this.catalog.createCategory(body) as {id:string};await this.audit.log({adminUserId:user.id,action:'category.created',entityType:'category',entityId:result.id});return result;}
+  @Patch('reorder') @RequirePermissions(PERMISSIONS.categoriesWrite) reorder(@Body()body:ReorderCategoriesDto){return this.catalog.reorderCategories(body.categoryIds);}
+  @Patch(':id') @RequirePermissions(PERMISSIONS.categoriesWrite) update(@Param('id')id:string,@Body()body:UpdateCategoryDto){return this.catalog.updateCategory(id,body);}
+  @Delete(':id') @RequirePermissions(PERMISSIONS.categoriesWrite) remove(@Param('id')id:string){return this.catalog.removeCategory(id);}
+  @Get(':id/specifications') @RequirePermissions(PERMISSIONS.specificationsRead) specifications(@Param('id')id:string){return this.catalog.categorySpecifications(id);}
+  @Put(':id/specifications') @RequirePermissions(PERMISSIONS.specificationsWrite) putSpecifications(@Param('id')id:string,@Body()body:ReplaceCategorySpecificationsDto){return this.catalog.replaceCategorySpecifications(id,body.values);}
+}
+
+@Controller('admin/brands')
+@UseGuards(AccessTokenGuard,PermissionsGuard)
+export class AdminBrandsController {
+  constructor(private readonly catalog:CatalogService){}
+  @Get() @RequirePermissions(PERMISSIONS.brandsRead) list(){return this.catalog.brands();}
+  @Post() @RequirePermissions(PERMISSIONS.brandsWrite) create(@Body()body:CreateBrandDto){return this.catalog.createBrand(body);}
+  @Patch(':id') @RequirePermissions(PERMISSIONS.brandsWrite) update(@Param('id')id:string,@Body()body:UpdateBrandDto){return this.catalog.updateBrand(id,body);}
+  @Delete(':id') @RequirePermissions(PERMISSIONS.brandsWrite) remove(@Param('id')id:string){return this.catalog.removeBrand(id);}
+}
+
+@Controller('admin/specifications')
+@UseGuards(AccessTokenGuard,PermissionsGuard)
+export class AdminSpecificationsController {
+  constructor(private readonly catalog:CatalogService,private readonly audit:AuditService){}
+  @Get() @RequirePermissions(PERMISSIONS.specificationsRead) list(){return this.catalog.specifications();}
+  @Get(':id') @RequirePermissions(PERMISSIONS.specificationsRead) one(@Param('id')id:string){return this.catalog.specification(id);}
+  @Post() @RequirePermissions(PERMISSIONS.specificationsWrite)
+  async create(@Body()body:CreateSpecificationDto,@CurrentUser()user:AuthUser){const result=await this.catalog.createSpecification(body) as {id:string};await this.audit.log({adminUserId:user.id,action:'specification.created',entityType:'specification',entityId:result.id});return result;}
+  @Patch(':id') @RequirePermissions(PERMISSIONS.specificationsWrite) update(@Param('id')id:string,@Body()body:UpdateSpecificationDto){return this.catalog.updateSpecification(id,body);}
+  @Delete(':id') @RequirePermissions(PERMISSIONS.specificationsWrite) remove(@Param('id')id:string){return this.catalog.removeSpecification(id);}
 }

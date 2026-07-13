@@ -1,0 +1,12 @@
+DELETE FROM product_model_specification_values;
+DELETE FROM product_model_images;
+DELETE FROM product_images;
+DELETE FROM product_models;
+DELETE FROM products WHERE external_key IN ('meat-cutter','bone-saw','gas-range','hot-plate','griddle');
+DELETE FROM category_specifications;
+DELETE FROM specification_options;
+DELETE FROM specification_definitions;
+DELETE FROM brands WHERE external_key='marhomy';
+DELETE FROM categories WHERE external_key IN ('floor-cooking','table-cooking','food-machines');
+DELETE FROM categories WHERE external_key IN ('part-1','part-2');
+DROP TABLE IF EXISTS catalog_settings;

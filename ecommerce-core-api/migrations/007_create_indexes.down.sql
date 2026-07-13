@@ -1,6 +1,0 @@
-DROP INDEX IF EXISTS admin_sessions_user_idx, audit_logs_created_idx, products_public_idx,
-  products_category_idx, products_brand_idx, products_tags_gin_idx, products_specifications_gin_idx,
-  product_primary_image_unique, product_default_variant_unique, quote_carts_expiry_idx,
-  quote_requests_status_created_idx, quote_requests_contact_idx, quote_requests_assignee_idx,
-  quote_requests_search_idx, quote_request_items_product_idx, notifications_user_unread_idx,
-  outbox_pending_idx, catalog_events_name_created_idx, catalog_events_product_idx;

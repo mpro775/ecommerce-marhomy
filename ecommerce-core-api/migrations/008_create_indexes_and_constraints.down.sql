@@ -1,0 +1,13 @@
+DROP TRIGGER IF EXISTS products_validate_publication ON products;
+DROP FUNCTION IF EXISTS validate_product_publication();
+DROP TRIGGER IF EXISTS product_models_protect_published ON product_models;
+DROP FUNCTION IF EXISTS protect_published_product_models();
+DROP TRIGGER IF EXISTS product_models_repair_default ON product_models;
+DROP FUNCTION IF EXISTS repair_default_product_model();
+DROP TRIGGER IF EXISTS product_models_choose_first ON product_models;
+DROP FUNCTION IF EXISTS choose_first_product_model();
+DROP TRIGGER IF EXISTS product_model_images_active_media ON product_model_images;
+DROP TRIGGER IF EXISTS product_images_active_media ON product_images;
+DROP FUNCTION IF EXISTS ensure_media_asset_is_active();
+DROP TRIGGER IF EXISTS categories_prevent_cycle ON categories;
+DROP FUNCTION IF EXISTS prevent_category_cycle();

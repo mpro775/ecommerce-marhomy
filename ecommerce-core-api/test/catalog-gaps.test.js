@@ -1,29 +1,4 @@
-const test=require('node:test');
-const assert=require('node:assert/strict');
-const {BadRequestException}=require('@nestjs/common');
-const {CatalogService}=require('../dist/catalog/catalog.service.js');
-const {ProductsService}=require('../dist/products/products.service.js');
-
-test('category update rejects itself and descendants as parents',async()=>{
-  const categoryId='11111111-1111-4111-8111-111111111111';
-  const descendantId='22222222-2222-4222-8222-222222222222';
-  const database={query:async(sql)=>{
-    if(sql.includes('WITH RECURSIVE descendants'))return{rows:[{parent_exists:true,is_descendant:true}]};
-    throw new Error('category update should stop before writing');
-  }};
-  const service=new CatalogService(database);
-  await assert.rejects(()=>service.update('categories',categoryId,{parentId:categoryId}),BadRequestException);
-  await assert.rejects(()=>service.update('categories',categoryId,{parentId:descendantId}),BadRequestException);
-});
-
-test('public product list applies numeric minimum and maximum filters',async()=>{
-  const queries=[];const database={query:async(sql,values)=>{queries.push({sql,values});return sql.includes('COUNT(')?{rows:[{count:'0'}]}:{rows:[]};}};
-  const service=new ProductsService(database);
-  const filterId='33333333-3333-4333-8333-333333333333';
-  await service.publicList({filterRanges:`${filterId}:10.5:20`,page:1,pageSize:24});
-  assert.match(queries[0].sql,/product_filter_ranges/);
-  assert.match(queries[0].sql,/range_value >=/);
-  assert.match(queries[0].sql,/range_value <=/);
-  assert.deepEqual(queries[0].values.slice(0,3),[filterId,10.5,20]);
-  await assert.rejects(()=>service.publicList({filterRanges:`${filterId}:20:10`}),BadRequestException);
-});
+const test=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const path=require('node:path');const {BadRequestException}=require('@nestjs/common');const {ProductsService}=require('../dist/products/products.service.js');const {ProductModelsService}=require('../dist/products/product-models.service.js');
+test('category hierarchy is guarded by a recursive cycle trigger',()=>{const migration=fs.readFileSync(path.resolve(__dirname,'../migrations/008_create_indexes_and_constraints.up.sql'),'utf8');assert.match(migration,/WITH RECURSIVE ancestors/);assert.match(migration,/category hierarchy cycle detected/);assert.match(migration,/categories_prevent_cycle/);});
+test('public product list applies specification filters to the same active model',async()=>{const queries=[];const database={query:async(sql,values)=>{queries.push({sql,values:[...(values??[])]});return sql.includes('COUNT(')?{rows:[{count:'0'}]}:{rows:[]};}};const service=new ProductsService(database);await service.publicList({filters:JSON.stringify([{slug:'net-weight',min:10.5,max:20}]),page:1,pageSize:24});assert.match(queries[0].sql,/product_model_specification_values/);assert.match(queries[0].sql,/sv\.value_number>=/);assert.match(queries[0].sql,/COALESCE\(sv\.value_number_to,sv\.value_number\)<=/);assert.match(queries[0].sql,/EXISTS\(SELECT 1 FROM product_models m/);assert.deepEqual(queries[0].values,['net-weight',10.5,20]);await assert.rejects(()=>service.publicList({filters:'not-json'}),BadRequestException);});
+test('model quantity and primary-image validation is independent per model',()=>{const service=new ProductModelsService({});assert.throws(()=>service.validateQuantity({minimumRequestQuantity:5,maximumRequestQuantity:2}),BadRequestException);assert.throws(()=>service.validateQuantity({images:[{isPrimary:true},{isPrimary:true}]}),BadRequestException);});

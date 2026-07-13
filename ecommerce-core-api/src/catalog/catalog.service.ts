@@ -1,126 +1,86 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { DatabaseService } from '../database/database.service';
-import type { CreateCatalogValueDto, UpdateCatalogEntryDto, UpdateCatalogValueDto, UpsertCatalogEntryDto } from './dto';
-type Kind='categories'|'brands'|'attributes'|'filters';
+import { DatabaseService, DbExecutor } from '../database/database.service';
+import type { CategorySpecificationDto, CreateBrandDto, CreateCategoryDto, CreateSpecificationDto, SpecificationOptionDto, UpdateBrandDto, UpdateCategoryDto, UpdateSpecificationDto } from './dto';
+
+type Row=Record<string,unknown>&{id:string;parent_id?:string|null};
+
 @Injectable()
-export class CatalogService{
+export class CatalogService {
   constructor(private readonly database:DatabaseService){}
-  async publicCategories():Promise<unknown[]>{return (await this.database.query(
-    `SELECT c.*,COALESCE(json_agg(child ORDER BY child.sort_order) FILTER(WHERE child.id IS NOT NULL),'[]') AS children
-      FROM categories c LEFT JOIN categories child ON child.parent_id=c.id AND child.is_active=TRUE
-      WHERE c.is_active=TRUE AND c.parent_id IS NULL GROUP BY c.id ORDER BY c.sort_order,c.title_ar`)).rows;}
-  async publicCategory(slug:string):Promise<unknown>{
-    const result=await this.database.query('SELECT * FROM categories WHERE slug=$1 AND is_active=TRUE',[slug]);
-    if(!result.rows[0])throw new NotFoundException('Category not found');return result.rows[0];
-  }
-  async publicBrands():Promise<unknown[]>{return (await this.database.query(
-    'SELECT * FROM brands WHERE is_active=TRUE ORDER BY sort_order,title_ar')).rows;}
-  async publicFilters():Promise<unknown[]>{return(await this.database.query(`SELECT f.*,
-    COALESCE((SELECT json_agg(v ORDER BY v.sort_order) FROM filter_values v WHERE v.filter_id=f.id),'[]') AS values
-    FROM filters f WHERE f.is_active=TRUE ORDER BY f.sort_order,f.name_ar`)).rows;}
-  async publicBrand(slug:string):Promise<unknown>{
-    const result=await this.database.query('SELECT * FROM brands WHERE slug=$1 AND is_active=TRUE',[slug]);
-    if(!result.rows[0])throw new NotFoundException('Brand not found');return result.rows[0];
-  }
-  async list(kind:Kind):Promise<unknown[]>{this.assertKind(kind);
-    if(kind==='attributes'||kind==='filters'){
-      const valueTable=kind==='attributes'?'attribute_values':'filter_values';const foreign=kind==='attributes'?'attribute_id':'filter_id';
-      return(await this.database.query(`SELECT e.*,COALESCE((SELECT json_agg(v ORDER BY v.sort_order,v.value_ar)
-        FROM ${valueTable} v WHERE v.${foreign}=e.id),'[]') AS values FROM ${kind} e ORDER BY e.sort_order,e.created_at DESC`)).rows;
-    }
-    if(kind==='categories')return(await this.database.query(`SELECT c.*,COALESCE((SELECT json_agg(ca.attribute_id ORDER BY ca.sort_order)
-      FROM category_attributes ca WHERE ca.category_id=c.id),'[]') AS attribute_ids FROM categories c ORDER BY c.sort_order,c.created_at DESC`)).rows;
-    return (await this.database.query('SELECT * FROM '+kind+' ORDER BY sort_order,created_at DESC')).rows;}
-  async create(kind:Kind,input:UpsertCatalogEntryDto):Promise<unknown>{
-    this.assertKind(kind);
-    if(kind==='categories'){
-      if(!input.titleAr)throw new BadRequestException('Arabic title is required');
-      return (await this.database.query(`INSERT INTO categories(parent_id,title_ar,title_en,slug,description_ar,description_en,image_url,
-        seo_title_ar,seo_title_en,seo_description_ar,seo_description_en,is_active,sort_order)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,[input.parentId??null,input.titleAr,input.titleEn??null,input.slug,
-        input.descriptionAr??null,input.descriptionEn??null,input.imageUrl??null,input.seoTitleAr??null,input.seoTitleEn??null,
-        input.seoDescriptionAr??null,input.seoDescriptionEn??null,input.isActive??true,input.sortOrder??0])).rows[0];
-    }
-    if(kind==='brands'){
-      if(!input.titleAr)throw new BadRequestException('Arabic title is required');
-      return (await this.database.query(`INSERT INTO brands(title_ar,title_en,slug,description_ar,description_en,logo_url,
-        seo_title_ar,seo_title_en,seo_description_ar,seo_description_en,is_active,sort_order)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,[input.titleAr,input.titleEn??null,input.slug,input.descriptionAr??null,
-        input.descriptionEn??null,input.logoUrl??null,input.seoTitleAr??null,input.seoTitleEn??null,input.seoDescriptionAr??null,
-        input.seoDescriptionEn??null,input.isActive??true,input.sortOrder??0])).rows[0];
-    }
-    if(!input.nameAr)throw new BadRequestException('Arabic name is required');
-    if(kind==='attributes')return (await this.database.query(`INSERT INTO attributes(name_ar,name_en,slug,input_type,is_filterable,is_active,sort_order)
-      VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`,[input.nameAr,input.nameEn??null,input.slug,input.inputType??'select',input.isFilterable??true,
-      input.isActive??true,input.sortOrder??0])).rows[0];
-    return (await this.database.query(`INSERT INTO filters(name_ar,name_en,slug,filter_type,is_active,sort_order)
-      VALUES($1,$2,$3,$4,$5,$6) RETURNING *`,[input.nameAr,input.nameEn??null,input.slug,input.filterType??'option',input.isActive??true,input.sortOrder??0])).rows[0];
-  }
-  async update(kind:Kind,id:string,input:UpdateCatalogEntryDto):Promise<unknown>{
-    this.assertKind(kind);
-    if(kind==='categories'&&input.parentId!==undefined)await this.assertValidCategoryParent(id,input.parentId);
-    const columns:{key:keyof UpdateCatalogEntryDto;column:string}[]=[
-      {key:'parentId',column:'parent_id'},{key:'titleAr',column:'title_ar'},{key:'titleEn',column:'title_en'},
-      {key:'slug',column:'slug'},{key:'descriptionAr',column:'description_ar'},{key:'descriptionEn',column:'description_en'},
-      {key:'imageUrl',column:'image_url'},{key:'logoUrl',column:'logo_url'},{key:'nameAr',column:'name_ar'},
-      {key:'seoTitleAr',column:'seo_title_ar'},{key:'seoTitleEn',column:'seo_title_en'},
-      {key:'seoDescriptionAr',column:'seo_description_ar'},{key:'seoDescriptionEn',column:'seo_description_en'},
-      {key:'nameEn',column:'name_en'},{key:'inputType',column:'input_type'},{key:'filterType',column:'filter_type'},
-      {key:'isFilterable',column:'is_filterable'},{key:'isActive',column:'is_active'},{key:'sortOrder',column:'sort_order'}];
-    const permitted=this.allowedColumns(kind);const changes=columns.filter((item)=>permitted.has(item.column)&&input[item.key]!==undefined);
-    if(!changes.length)throw new BadRequestException('No supported fields supplied');
-    const values=changes.map((item)=>input[item.key]);const assignments=changes.map((item,index)=>item.column+'=$'+(index+2)).join(',');
-    const result=await this.database.query('UPDATE '+kind+' SET '+assignments+(kind==='categories'||kind==='brands'?',updated_at=NOW()':'')+' WHERE id=$1 RETURNING *',[id,...values]);
-    if(!result.rows[0])throw new NotFoundException('Catalog entry not found');return result.rows[0];
-  }
-  async remove(kind:Kind,id:string):Promise<void>{this.assertKind(kind);const result=await this.database.query('DELETE FROM '+kind+' WHERE id=$1',[id]);
-    if(!result.rowCount)throw new NotFoundException('Catalog entry not found');}
-  async addValue(kind:'attributes'|'filters',id:string,input:CreateCatalogValueDto):Promise<unknown>{
-    const table=kind==='attributes'?'attribute_values':'filter_values';const foreign=kind==='attributes'?'attribute_id':'filter_id';
-    const columns=kind==='attributes'?'('+foreign+',value_ar,value_en,code,sort_order)':'('+foreign+',value_ar,value_en,sort_order)';
-    const values=kind==='attributes'?[id,input.valueAr,input.valueEn??null,input.code??null,input.sortOrder??0]:[id,input.valueAr,input.valueEn??null,input.sortOrder??0];
-    const markers=values.map((_,index)=>'$'+(index+1)).join(',');
-    return (await this.database.query('INSERT INTO '+table+columns+' VALUES('+markers+') RETURNING *',values)).rows[0];
-  }
-  async updateValue(kind:'attributes'|'filters',id:string,valueId:string,input:UpdateCatalogValueDto):Promise<unknown>{
-    const table=kind==='attributes'?'attribute_values':'filter_values';const foreign=kind==='attributes'?'attribute_id':'filter_id';
-    const fields:Array<{key:keyof UpdateCatalogValueDto;column:string}>=[{key:'valueAr',column:'value_ar'},{key:'valueEn',column:'value_en'},
-      {key:'sortOrder',column:'sort_order'},...(kind==='attributes'?[{key:'code' as keyof UpdateCatalogValueDto,column:'code'}]:[])];
-    const changes=fields.filter(field=>input[field.key]!==undefined);if(!changes.length)throw new BadRequestException('No supported fields supplied');
-    const assignments=changes.map((field,index)=>field.column+'=$'+(index+3)).join(',');
-    const result=await this.database.query(`UPDATE ${table} SET ${assignments} WHERE id=$1 AND ${foreign}=$2 RETURNING *`,
-      [valueId,id,...changes.map(field=>input[field.key])]);
-    if(!result.rows[0])throw new NotFoundException('Catalog value not found');return result.rows[0];
-  }
-  async removeValue(kind:'attributes'|'filters',id:string,valueId:string):Promise<void>{
-    const table=kind==='attributes'?'attribute_values':'filter_values';const foreign=kind==='attributes'?'attribute_id':'filter_id';
-    const result=await this.database.query(`DELETE FROM ${table} WHERE id=$1 AND ${foreign}=$2`,[valueId,id]);
-    if(!result.rowCount)throw new NotFoundException('Catalog value not found');
-  }
-  async replaceCategoryAttributes(categoryId:string,attributeIds:string[]):Promise<void>{await this.database.transaction(async client=>{
-    const category=await client.query('SELECT 1 FROM categories WHERE id=$1',[categoryId]);if(!category.rowCount)throw new NotFoundException('Category not found');
-    await client.query('DELETE FROM category_attributes WHERE category_id=$1',[categoryId]);
-    for(let index=0;index<attributeIds.length;index++)await client.query(
-      'INSERT INTO category_attributes(category_id,attribute_id,sort_order) VALUES($1,$2,$3)',[categoryId,attributeIds[index],index]);
-  });}
-  private assertKind(kind:string):asserts kind is Kind{if(!['categories','brands','attributes','filters'].includes(kind))throw new BadRequestException('Unsupported catalog type');}
-  private async assertValidCategoryParent(categoryId:string,parentId:string|null):Promise<void>{
-    if(parentId===null)return;
-    if(parentId===categoryId)throw new BadRequestException('A category cannot be its own parent');
-    const result=await this.database.query<{parent_exists:boolean;is_descendant:boolean}>(`WITH RECURSIVE descendants AS (
-      SELECT id FROM categories WHERE parent_id=$1
-      UNION
-      SELECT c.id FROM categories c JOIN descendants d ON c.parent_id=d.id
-    ) SELECT EXISTS(SELECT 1 FROM categories WHERE id=$2) AS parent_exists,
-      EXISTS(SELECT 1 FROM descendants WHERE id=$2) AS is_descendant`,[categoryId,parentId]);
-    if(!result.rows[0]?.parent_exists)throw new BadRequestException('Parent category not found');
-    if(result.rows[0].is_descendant)throw new BadRequestException('A descendant category cannot be selected as the parent');
-  }
-  private allowedColumns(kind:Kind):Set<string>{
-    const seo=['seo_title_ar','seo_title_en','seo_description_ar','seo_description_en'];
-    const map:Record<Kind,string[]>={categories:['parent_id','title_ar','title_en','slug','description_ar','description_en','image_url','is_active','sort_order',...seo],
-      brands:['title_ar','title_en','slug','description_ar','description_en','logo_url','is_active','sort_order',...seo],
-      attributes:['name_ar','name_en','slug','input_type','is_filterable','is_active','sort_order'],
-      filters:['name_ar','name_en','slug','filter_type','is_active','sort_order']};return new Set(map[kind]);
-  }
+
+  async publicCategories():Promise<unknown[]>{const rows=(await this.database.query(`SELECT c.*,
+    (SELECT COUNT(*)::int FROM products p WHERE p.primary_category_id=c.id AND p.status='published') AS direct_product_count
+    FROM categories c WHERE c.is_active ORDER BY c.sort_order,c.title_ar`)).rows as Row[];return this.tree(rows);}
+  async publicCategory(slug:string):Promise<unknown>{const result=await this.database.query(`SELECT c.*,
+    (WITH RECURSIVE trail AS (SELECT id,parent_id,title_ar,title_en,slug,0 depth FROM categories WHERE id=c.id
+      UNION ALL SELECT p.id,p.parent_id,p.title_ar,p.title_en,p.slug,t.depth+1 FROM categories p JOIN trail t ON t.parent_id=p.id)
+      SELECT json_agg(jsonb_build_object('id',id,'title_ar',title_ar,'title_en',title_en,'slug',slug) ORDER BY depth DESC) FROM trail) AS breadcrumbs
+    FROM categories c WHERE c.slug=$1 AND c.is_active`,[slug]);if(!result.rows[0])throw new NotFoundException('Category not found');return result.rows[0];}
+  async publicCategoryProducts(slug:string):Promise<unknown[]>{return(await this.database.query(`WITH RECURSIVE descendants AS (
+    SELECT id FROM categories WHERE slug=$1 AND is_active UNION ALL SELECT c.id FROM categories c JOIN descendants d ON c.parent_id=d.id WHERE c.is_active)
+    SELECT DISTINCT p.id,p.slug,p.title_ar,p.title_en,p.short_description_ar,p.short_description_en,
+      (SELECT COUNT(*)::int FROM product_models WHERE product_id=p.id AND is_active) AS model_count,
+      (SELECT COALESCE(mi.image_url,pi.image_url) FROM product_models m
+        LEFT JOIN LATERAL(SELECT image_url FROM product_model_images WHERE model_id=m.id ORDER BY is_primary DESC,sort_order LIMIT 1) mi ON TRUE
+        LEFT JOIN LATERAL(SELECT image_url FROM product_images WHERE product_id=p.id ORDER BY is_primary DESC,sort_order LIMIT 1) pi ON TRUE
+        WHERE m.product_id=p.id AND m.is_active ORDER BY m.is_default DESC,m.sort_order LIMIT 1) AS primary_image_url
+    FROM products p LEFT JOIN product_categories pc ON pc.product_id=p.id WHERE p.status='published'
+      AND (p.primary_category_id IN (SELECT id FROM descendants) OR pc.category_id IN (SELECT id FROM descendants)) ORDER BY p.sort_order,p.title_ar`,[slug])).rows;}
+  async publicBrands():Promise<unknown[]>{return(await this.database.query('SELECT * FROM brands WHERE is_active ORDER BY sort_order,title_ar')).rows;}
+  async publicBrand(slug:string):Promise<unknown>{const result=await this.database.query('SELECT * FROM brands WHERE slug=$1 AND is_active',[slug]);if(!result.rows[0])throw new NotFoundException('Brand not found');return result.rows[0];}
+  async publicFilters(category?:string):Promise<unknown[]>{const values:unknown[]=[];let categoryClause='';if(category){values.push(category);categoryClause=`AND cs.category_id IN (
+    WITH RECURSIVE ancestors AS (SELECT id,parent_id FROM categories WHERE slug=$1 UNION ALL SELECT c.id,c.parent_id FROM categories c JOIN ancestors a ON a.parent_id=c.id) SELECT id FROM ancestors)`;}
+    return(await this.database.query(`SELECT sd.*,
+      COALESCE((SELECT json_agg(o ORDER BY o.sort_order) FROM specification_options o WHERE o.specification_id=sd.id AND o.is_active),'[]') AS options,
+      MIN(sv.value_number) AS minimum_value,MAX(COALESCE(sv.value_number_to,sv.value_number)) AS maximum_value
+      FROM specification_definitions sd LEFT JOIN category_specifications cs ON cs.specification_id=sd.id
+      LEFT JOIN product_model_specification_values sv ON sv.specification_id=sd.id
+      LEFT JOIN product_models m ON m.id=sv.model_id AND m.is_active
+      WHERE sd.is_active AND COALESCE(cs.is_filterable_override,sd.is_filterable) ${categoryClause}
+      GROUP BY sd.id ORDER BY MIN(COALESCE(cs.sort_order,sd.sort_order)),sd.sort_order`,values)).rows;}
+
+  async categories():Promise<unknown[]>{const rows=(await this.database.query('SELECT * FROM categories ORDER BY sort_order,title_ar')).rows as Row[];return this.tree(rows);}
+  async createCategory(input:CreateCategoryDto):Promise<unknown>{return(await this.database.query(`INSERT INTO categories(parent_id,external_key,catalog_code,title_ar,title_en,slug,description_ar,description_en,image_url,icon_key,is_active,sort_order)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,[input.parentId??null,input.externalKey??null,input.catalogCode??null,input.titleAr,input.titleEn??null,input.slug,
+    input.descriptionAr??null,input.descriptionEn??null,input.imageUrl??null,input.iconKey??null,input.isActive??true,input.sortOrder??0])).rows[0];}
+  updateCategory(id:string,input:UpdateCategoryDto):Promise<unknown>{return this.dynamicUpdate('categories',id,input,{parentId:'parent_id',externalKey:'external_key',catalogCode:'catalog_code',titleAr:'title_ar',titleEn:'title_en',slug:'slug',descriptionAr:'description_ar',descriptionEn:'description_en',imageUrl:'image_url',iconKey:'icon_key',isActive:'is_active',sortOrder:'sort_order'});}
+  async removeCategory(id:string):Promise<void>{const result=await this.database.query('DELETE FROM categories WHERE id=$1',[id]);if(!result.rowCount)throw new NotFoundException('Category not found');}
+  async reorderCategories(ids:string[]):Promise<void>{if(new Set(ids).size!==ids.length)throw new BadRequestException('Duplicate category IDs');await this.database.transaction(async client=>{for(const[index,id]of ids.entries()){
+    const result=await client.query('UPDATE categories SET sort_order=$2,updated_at=NOW() WHERE id=$1',[id,index]);if(!result.rowCount)throw new NotFoundException('Category not found');}});}
+  brands():Promise<unknown[]>{return this.database.query('SELECT * FROM brands ORDER BY sort_order,title_ar').then(result=>result.rows);}
+  async createBrand(input:CreateBrandDto):Promise<unknown>{return(await this.database.query(`INSERT INTO brands(external_key,title_ar,title_en,slug,description_ar,description_en,logo_url,is_active,sort_order)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,[input.externalKey??null,input.titleAr,input.titleEn??null,input.slug,input.descriptionAr??null,input.descriptionEn??null,input.logoUrl??null,input.isActive??true,input.sortOrder??0])).rows[0];}
+  updateBrand(id:string,input:UpdateBrandDto):Promise<unknown>{return this.dynamicUpdate('brands',id,input,{externalKey:'external_key',titleAr:'title_ar',titleEn:'title_en',slug:'slug',descriptionAr:'description_ar',descriptionEn:'description_en',logoUrl:'logo_url',isActive:'is_active',sortOrder:'sort_order'});}
+  async removeBrand(id:string):Promise<void>{const result=await this.database.query('DELETE FROM brands WHERE id=$1',[id]);if(!result.rowCount)throw new NotFoundException('Brand not found');}
+
+  specifications():Promise<unknown[]>{return this.database.query(`SELECT sd.*,COALESCE((SELECT json_agg(o ORDER BY o.sort_order) FROM specification_options o WHERE o.specification_id=sd.id),'[]') AS options,
+    COALESCE((SELECT json_agg(cs.category_id) FROM category_specifications cs WHERE cs.specification_id=sd.id),'[]') AS category_ids
+    FROM specification_definitions sd ORDER BY sd.sort_order,sd.created_at`).then(result=>result.rows);}
+  async specification(id:string):Promise<unknown>{const result=await this.database.query(`SELECT sd.*,COALESCE((SELECT json_agg(o ORDER BY o.sort_order) FROM specification_options o WHERE o.specification_id=sd.id),'[]') AS options
+    FROM specification_definitions sd WHERE sd.id=$1`,[id]);if(!result.rows[0])throw new NotFoundException('Specification not found');return result.rows[0];}
+  async createSpecification(input:CreateSpecificationDto):Promise<unknown>{const id=await this.database.transaction(async client=>{const result=await client.query<{id:string}>(`INSERT INTO specification_definitions(slug,name_ar,name_en,value_type,unit_ar,unit_en,is_required_default,is_filterable,is_comparable,is_active,sort_order)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,[input.slug,input.nameAr,input.nameEn??null,input.valueType,input.unitAr??null,input.unitEn??null,
+    input.isRequiredDefault??false,input.isFilterable??false,input.isComparable??true,input.isActive??true,input.sortOrder??0]);await this.replaceOptions(client,result.rows[0].id,input.options??[]);return result.rows[0].id;});return this.specification(id);}
+  async updateSpecification(id:string,input:UpdateSpecificationDto):Promise<unknown>{await this.database.transaction(async client=>{const fields={slug:'slug',nameAr:'name_ar',nameEn:'name_en',valueType:'value_type',unitAr:'unit_ar',unitEn:'unit_en',isRequiredDefault:'is_required_default',isFilterable:'is_filterable',isComparable:'is_comparable',isActive:'is_active',sortOrder:'sort_order'};
+    const record=input as unknown as Record<string,unknown>;const changes=Object.entries(fields).filter(([key])=>record[key]!==undefined);if(changes.length){const result=await client.query(`UPDATE specification_definitions SET ${changes.map(([,column],i)=>`${column}=$${i+2}`).join(',')},updated_at=NOW() WHERE id=$1 RETURNING id`,[id,...changes.map(([key])=>record[key])]);if(!result.rowCount)throw new NotFoundException('Specification not found');}
+    if(input.options!==undefined)await this.replaceOptions(client,id,input.options);if(!changes.length&&input.options===undefined)throw new BadRequestException('No supported fields supplied');});return this.specification(id);}
+  async removeSpecification(id:string):Promise<void>{const result=await this.database.query('DELETE FROM specification_definitions WHERE id=$1',[id]);if(!result.rowCount)throw new NotFoundException('Specification not found');}
+  async categorySpecifications(categoryId:string):Promise<unknown[]>{return(await this.database.query(`WITH RECURSIVE ancestors AS (
+    SELECT id,parent_id,0 depth FROM categories WHERE id=$1 UNION ALL SELECT c.id,c.parent_id,a.depth+1 FROM categories c JOIN ancestors a ON a.parent_id=c.id)
+    SELECT DISTINCT ON (sd.id) sd.*,cs.is_required,cs.is_filterable_override,cs.is_comparable_override,cs.sort_order,cs.category_id,a.depth,
+      COALESCE((SELECT json_agg(o ORDER BY o.sort_order) FROM specification_options o WHERE o.specification_id=sd.id AND o.is_active),'[]') AS options
+    FROM ancestors a JOIN category_specifications cs ON cs.category_id=a.id JOIN specification_definitions sd ON sd.id=cs.specification_id
+    ORDER BY sd.id,a.depth,cs.sort_order`,[categoryId])).rows;}
+  async replaceCategorySpecifications(categoryId:string,values:CategorySpecificationDto[]):Promise<void>{await this.database.transaction(async client=>{const category=await client.query('SELECT 1 FROM categories WHERE id=$1',[categoryId]);if(!category.rowCount)throw new NotFoundException('Category not found');
+    await client.query('DELETE FROM category_specifications WHERE category_id=$1',[categoryId]);for(const value of values)await client.query(`INSERT INTO category_specifications(category_id,specification_id,is_required,is_filterable_override,is_comparable_override,sort_order)
+      VALUES($1,$2,$3,$4,$5,$6)`,[categoryId,value.specificationId,value.isRequired??false,value.isFilterableOverride??null,value.isComparableOverride??null,value.sortOrder??0]);});}
+
+  private tree(rows:Row[]):unknown[]{const byId=new Map(rows.map(row=>[row.id,{...row,children:[] as unknown[]}])) as Map<string,Row&{children:unknown[]}>;const roots:unknown[]=[];
+    for(const row of byId.values()){if(row.parent_id&&byId.has(row.parent_id))byId.get(row.parent_id)!.children.push(row);else roots.push(row);}return roots;}
+  private async dynamicUpdate(table:'categories'|'brands',id:string,input:object,fields:Record<string,string>):Promise<unknown>{const record=input as Record<string,unknown>;const changes=Object.entries(fields).filter(([key])=>record[key]!==undefined);
+    if(!changes.length)throw new BadRequestException('No supported fields supplied');const result=await this.database.query(`UPDATE ${table} SET ${changes.map(([,column],i)=>`${column}=$${i+2}`).join(',')},updated_at=NOW() WHERE id=$1 RETURNING *`,[id,...changes.map(([key])=>record[key])]);
+    if(!result.rows[0])throw new NotFoundException('Catalog entry not found');return result.rows[0];}
+  private async replaceOptions(db:DbExecutor,specificationId:string,options:SpecificationOptionDto[]):Promise<void>{await db.query('DELETE FROM specification_options WHERE specification_id=$1',[specificationId]);
+    for(const option of options)await db.query(`INSERT INTO specification_options(specification_id,value_key,label_ar,label_en,sort_order,is_active) VALUES($1,$2,$3,$4,$5,$6)`,
+      [specificationId,option.valueKey,option.labelAr,option.labelEn??null,option.sortOrder??0,option.isActive??true]);}
 }

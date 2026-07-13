@@ -1,4 +1,5 @@
 const API=(import.meta.env.VITE_API_BASE_URL as string|undefined)??'/api';
+export type Row=Record<string,any>;
 export async function api<T>(path:string,options:RequestInit={}):Promise<T>{
   const headers=new Headers(options.headers);if(options.body&&!headers.has('content-type'))headers.set('content-type','application/json');
   const response=await fetch(API+path,{...options,headers});if(!response.ok){const body=await response.json().catch(()=>({message:'Request failed'})) as {message?:string|string[]};

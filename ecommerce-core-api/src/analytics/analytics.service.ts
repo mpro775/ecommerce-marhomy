@@ -6,8 +6,8 @@ export class AnalyticsService{
   constructor(private readonly database:DatabaseService){}
   async track(input:TrackCatalogEventDto):Promise<void>{
     const metadata=JSON.stringify(input.metadata??{});if(Buffer.byteLength(metadata)>10000)return;
-    await this.database.query(`INSERT INTO catalog_events(event_name,anonymous_id,session_id,product_id,category_id,brand_id,source,metadata)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,[input.eventName,input.anonymousId??null,input.sessionId??null,input.productId??null,
+    await this.database.query(`INSERT INTO catalog_events(event_name,anonymous_id,session_id,product_id,model_id,category_id,brand_id,source,metadata)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,[input.eventName,input.anonymousId??null,input.sessionId??null,input.productId??null,input.modelId??null,
       input.categoryId??null,input.brandId??null,input.source??'web',input.metadata??{}]);
   }
   async dashboard():Promise<Record<string,unknown>>{

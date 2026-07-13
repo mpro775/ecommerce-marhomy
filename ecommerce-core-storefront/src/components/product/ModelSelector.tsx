@@ -1,0 +1,2 @@
+import type { Row } from '../../api';
+export function ModelSelector({models,selectedId,onSelect,lang}:{models:Row[];selectedId:string;onSelect:(model:Row)=>void;lang:'ar'|'en'}){return <div className="model-selector" role="tablist" aria-label={lang==='ar'?'اختر الموديل':'Select model'}>{models.map(model=><button type="button" role="tab" aria-selected={model.id===selectedId} className={model.id===selectedId?'active':''} key={model.id} onClick={()=>onSelect(model)}><strong>{model.model_code}</strong><small>{lang==='ar'?model.title_ar:model.title_en}</small></button>)}</div>;}

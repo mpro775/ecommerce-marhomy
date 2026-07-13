@@ -5,8 +5,10 @@ import { Login } from './pages/Login';
 import { AcceptInvite } from './pages/AcceptInvite';
 import { ForgotPassword } from './pages/ForgotPassword';
 import { ResetPassword } from './pages/ResetPassword';
-import { ImportProducts, ProductEditor } from './pages/ProductEditor';
-import { CatalogManager } from './pages/CatalogManager';
+import { ProductEditor } from './pages/products/ProductEditor';
+import { CatalogManager } from './pages/catalog/CatalogManager';
+import { SpecificationsManager } from './pages/catalog/SpecificationsManager';
+import { CatalogImportPage } from './pages/import/CatalogImportPage';
 import { canOpenPage, PermissionProvider, PERMISSIONS, usePermissions } from './permissions';
 type Row=Record<string,any>;
 const statusLabels:Record<string,string>={new:'جديد',in_review:'قيد المراجعة',contacted:'تم التواصل',quote_sent:'أرسل العرض',
@@ -23,7 +25,7 @@ function Page({title,description,action,children}:{title:string;description?:str
 function Empty({loading,label='لا توجد بيانات'}:{loading?:boolean;label?:string}){return <div className="empty">{loading?'جارٍ التحميل…':label}</div>;}
 const nav:Array<{label:string;items:Array<[string,string]>}>=[
   {label:'العمل',items:[['dashboard','لوحة المعلومات'],['requests','طلبات عروض الأسعار'],['requests:new','الطلبات الجديدة'],['contacts','جهات الاتصال'],['notifications','الإشعارات']]},
-  {label:'الكتالوج',items:[['products','المنتجات'],['categories','التصنيفات'],['brands','العلامات التجارية'],['attributes','الخصائص'],['filters','الفلاتر'],['media','الوسائط']]},
+  {label:'الكتالوج',items:[['products','المنتجات والموديلات'],['categories','شجرة الأقسام'],['brands','العلامات التجارية'],['specifications','المواصفات'],['imports','الاستيراد والتصدير'],['media','الوسائط']]},
   {label:'الإدارة',items:[['team','الفريق والأدوار'],['reports','التقارير'],['audit','سجل العمليات']]},
 ];
 export function App(){
@@ -51,7 +53,9 @@ function Router({page}:{page:string}){
   const{has}=usePermissions();
   if(page==='dashboard')return <Dashboard/>;
   if(page==='products')return <Products/>;
-  if(['categories','brands','attributes','filters'].includes(page))return <CatalogManager kind={page} canWrite={has(page+':write')}/>;
+  if(['categories','brands'].includes(page))return <CatalogManager kind={page as 'categories'|'brands'} canWrite={has(page+':write')}/>;
+  if(page==='specifications')return <SpecificationsManager canWrite={has(PERMISSIONS.specificationsWrite)}/>;
+  if(page==='imports')return <CatalogImportPage canWrite={has(PERMISSIONS.catalogImportsWrite)}/>;
   if(page==='requests'||page.startsWith('requests:'))return <Requests initialStatus={page.split(':')[1]??''}/>;
   if(page==='contacts')return <Contacts/>;
   if(page==='notifications')return <Notifications/>;
@@ -77,15 +81,15 @@ function MetricTable({title,rows}:{title:string;rows:Row[]}){return <div classNa
 function Products(){
   const{has}=usePermissions();const canWrite=has(PERMISSIONS.productsWrite);
   const{data,error,loading,load}=useRemote<{items:Row[];count:number}>('/admin/products',{items:[],count:0});
-  const[editing,setEditing]=useState<Row|null>(null),[importing,setImporting]=useState(false);
+  const[editing,setEditing]=useState<Row|null>(null);
   return <Page title="المنتجات" description="منتجات كتالوج بمواصفات ووحدات قياس دون أي حقول مالية."
-    action={canWrite?<div className="toolbar"><button className="button secondary" onClick={()=>setImporting(true)}>استيراد Excel</button><button className="button" onClick={()=>setEditing({})}>إضافة منتج</button></div>:undefined}>{error&&<div className="error">{error}</div>}
-    <div className="table-wrap">{loading?<Empty loading/>:<table><thead><tr><th>المنتج</th><th>SKU</th><th>الحالة</th><th>التوفر</th><th>الوحدة</th><th></th></tr></thead>
-      <tbody>{data.items.map(row=><tr key={row.id}><td><strong>{row.title_ar}</strong><div className="muted">{row.title_en}</div></td><td>{row.sku||'—'}</td>
-        <td><span className="badge">{row.status}</span></td><td>{row.availability_status}</td><td>{units[row.unit_of_measure]??row.unit_of_measure}</td>
+    action={canWrite?<button className="button" onClick={()=>setEditing({})}>إضافة منتج</button>:undefined}>{error&&<div className="error">{error}</div>}
+    <div className="table-wrap">{loading?<Empty loading/>:<table><thead><tr><th>المنتج</th><th>القسم</th><th>الموديلات</th><th>الحالة</th><th></th></tr></thead>
+      <tbody>{data.items.map(row=><tr key={row.id}><td><strong>{row.title_ar}</strong><div className="muted">{row.title_en}</div></td><td>{row.category_title_ar}</td><td><strong>{row.model_count}</strong></td>
+        <td><span className="badge">{row.status}</span></td>
         <td>{canWrite&&<button className="button secondary small" onClick={()=>void api<Row>('/admin/products/'+row.id).then(setEditing)}>تعديل</button>}</td></tr>)}</tbody></table>}</div>
     {editing&&<ProductEditor product={editing} close={()=>setEditing(null)} saved={async()=>{setEditing(null);await load();}}/>}
-    {importing&&<ImportProducts close={()=>setImporting(false)} done={load}/>}</Page>;
+    </Page>;
 }
 function Field({label,value,onChange,required,type='text',step}:{label:string;value:any;onChange:(value:string)=>void;required?:boolean;type?:string;step?:string}){
   return <label className="field"><span>{label}</span><input type={type} step={step} required={required} value={value} onChange={e=>onChange(e.target.value)}/></label>;
@@ -114,8 +118,8 @@ function RequestDialog({id,close,changed}:{id:string;close:()=>void;changed:()=>
       <div className="card"><span className="muted">جهة الاتصال</span><h3>{data.full_name}</h3><div>{data.phone}</div></div><div className="card"><span className="muted">المدينة</span><h3>{data.city||'—'}</h3></div></div>
       {(canWrite||canAssign)&&<div className="toolbar">{canWrite&&<select value={data.status} onChange={e=>void setStatus(e.target.value)}>{[data.status,...(data.allowedTransitions??[])].map((key:string)=><option key={key} value={key}>{statusLabels[key]??key}</option>)}</select>}
         {canAssign&&<select value={data.assigned_to_admin_user_id??''} onChange={e=>void assign(e.target.value)}><option value="">غير معين</option>{users.map(user=><option key={user.id} value={user.id}>{user.full_name}</option>)}</select>}</div>}
-      <div className="grid-two"><div className="panel"><h3>العناصر وقت الإرسال</h3><div className="request-items">{(data.items??[]).map((item:Row)=><div className="request-item" key={item.id}>
-        {item.image_url_snapshot&&<img src={item.image_url_snapshot} alt=""/>}<div><strong>{item.product_title_snapshot}</strong><div>{item.variant_title_snapshot}</div>
+      <div className="toolbar"><button className="button secondary small" onClick={()=>window.print()}>طباعة / حفظ PDF</button><button className="button secondary small" onClick={()=>void navigator.clipboard.writeText(JSON.stringify(data.items??[],null,2))}>نسخ التفاصيل</button></div><div className="grid-two"><div className="panel"><h3>العناصر وقت الإرسال</h3><div className="request-items">{(data.items??[]).map((item:Row)=><div className="request-item" key={item.id}>
+        {item.image_url_snapshot&&<img src={item.image_url_snapshot} alt=""/>}<div><strong>{item.product_title_snapshot}</strong><div>الموديل: {item.model_code_snapshot}</div>
         <div>{item.quantity} {units[item.unit_snapshot]??item.unit_snapshot}</div>{item.item_note&&<small>{item.item_note}</small>}</div></div>)}</div></div>
         <div><div className="panel"><h3>ملاحظة داخلية</h3>{canWrite&&<><textarea rows={3} style={{width:'100%'}} value={note} onChange={e=>setNote(e.target.value)}/><button className="button small" onClick={()=>void addNote()}>إضافة</button></>}
           {(data.notes??[]).map((item:Row)=><p key={item.id}><strong>{item.admin_name}</strong>: {item.content}</p>)}</div>
@@ -149,8 +153,8 @@ function Notifications(){
 function Team(){
   const{has}=usePermissions();const canWrite=has(PERMISSIONS.teamWrite);
   const{data:users,error,loading,load}=useRemote<Row[]>('/admin/team/users',[]);const{data:roles}=useRemote<Row[]>('/admin/team/roles',[]);
-  const[form,setForm]=useState({email:'',fullName:'',roleName:'quote_agent'}),[message,setMessage]=useState(''),[editing,setEditing]=useState<Row|null>(null);
-  const invite=async(event:FormEvent)=>{event.preventDefault();try{await api('/admin/team/invites',{method:'POST',body:JSON.stringify(form)});setMessage('تمت جدولة الدعوة للإرسال.');setForm({email:'',fullName:'',roleName:'quote_agent'});}catch(value){setMessage((value as Error).message);}};
+  const[form,setForm]=useState({email:'',fullName:'',roleName:'sales'}),[message,setMessage]=useState(''),[editing,setEditing]=useState<Row|null>(null);
+  const invite=async(event:FormEvent)=>{event.preventDefault();try{await api('/admin/team/invites',{method:'POST',body:JSON.stringify(form)});setMessage('تمت جدولة الدعوة للإرسال.');setForm({email:'',fullName:'',roleName:'sales'});}catch(value){setMessage((value as Error).message);}};
   const saveUser=async()=>{if(!editing)return;setMessage('');try{await api('/admin/team/users/'+editing.id,{method:'PATCH',body:JSON.stringify({roles:editing.roles,isActive:editing.is_active})});setEditing(null);setMessage('تم تحديث عضو الفريق.');await load();}catch(value){setMessage((value as Error).message);}};
   return <Page title="الفريق والأدوار" description="إدارة أدوار أعضاء الفريق وحالة الوصول.">{(error||message)&&<div className={message.startsWith('تم')?'success':'error'}>{error||message}</div>}<div className="grid-two"><div className="table-wrap">{loading?<Empty loading/>:<table><thead><tr><th>المستخدم</th><th>الدور</th><th>الحالة</th><th></th></tr></thead>
     <tbody>{users.map(row=><tr key={row.id}><td>{row.full_name}<div className="muted">{row.email}</div></td><td>{row.roles?.join('، ')}</td><td><span className="badge">{row.is_active?'فعال':'موقوف'}</span></td><td>{canWrite&&<button className="button secondary small" onClick={()=>setEditing({...row,roles:[...(row.roles??[])]})}>إدارة</button>}</td></tr>)}</tbody></table>}</div>

@@ -16,6 +16,8 @@ export class QuoteRequestsController{
   @Post()@Throttle({default:{limit:5,ttl:60000}})
   submit(@Body()body:SubmitQuoteRequestDto,@Headers('idempotency-key')key:string|undefined,@Req()request:Request){
     return this.requests.submit(body,key??'',getRequestContext(request));}
+  @Get('track/:trackingCode')
+  track(@Param('trackingCode')trackingCode:string){return this.requests.publicStatusByTrackingCode(trackingCode);}
   @Get('public/:requestNumber')
   status(@Param('requestNumber')requestNumber:string,@Query('token')token:string){return this.requests.publicStatus(requestNumber,token);}
 }
