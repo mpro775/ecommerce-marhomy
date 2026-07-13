@@ -11,7 +11,7 @@ if (!['up', 'down'].includes(command)) {
 }
 
 const connectionString =
-  process.env.DATABASE_URL ?? 'postgres://ecommerce_core:password@localhost:5432/ecommerce_core_store';
+  process.env.DATABASE_URL ?? 'postgres://ecommerce_core:password@localhost:5432/ecommerce_core_rfq';
 
 const client = new pg.Client({ connectionString });
 

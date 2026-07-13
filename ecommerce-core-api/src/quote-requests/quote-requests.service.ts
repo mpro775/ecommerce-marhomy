@@ -29,6 +29,8 @@ export class QuoteRequestsService{
         if(previous.rows[0].request_hash!==requestHash)throw new ConflictException('Idempotency key was used with a different request');
         return previous.rows[0].response_body;
       }
+      await client.query(`DELETE FROM idempotency_keys
+        WHERE scope='quote_request' AND idempotency_key=$1 AND expires_at<=NOW()`,[idempotencyKey]);
       const cartResult=await client.query<CartRow>('SELECT id,status,expires_at FROM quote_carts WHERE public_token=$1 FOR UPDATE',[input.cartToken]);
       const cart=cartResult.rows[0];if(!cart)throw new NotFoundException('Quote cart not found');
       if(cart.status!=='open')throw new BadRequestException('Quote cart is not open');

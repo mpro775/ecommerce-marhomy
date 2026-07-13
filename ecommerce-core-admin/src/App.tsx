@@ -7,6 +7,7 @@ import { ForgotPassword } from './pages/ForgotPassword';
 import { ResetPassword } from './pages/ResetPassword';
 import { ImportProducts, ProductEditor } from './pages/ProductEditor';
 import { CatalogManager } from './pages/CatalogManager';
+import { canOpenPage, PermissionProvider, PERMISSIONS, usePermissions } from './permissions';
 type Row=Record<string,any>;
 const statusLabels:Record<string,string>={new:'جديد',in_review:'قيد المراجعة',contacted:'تم التواصل',quote_sent:'أرسل العرض',
   accepted:'مقبول',rejected:'مرفوض',cancelled:'ملغي',closed:'مغلق'};
@@ -35,19 +36,22 @@ export function App(){
   if(sessionState===undefined)return <main className="login-page" dir="rtl"/>;
   if(!sessionState)return <Login onLogin={setSessionState}/>;
   const user=sessionState.user;
+  const permissionSet=new Set(user.permissions);const visibleNav=nav.map(group=>({...group,items:group.items.filter(([key])=>canOpenPage(permissionSet,key))})).filter(group=>group.items.length);
+  const activePage=canOpenPage(permissionSet,page)?page:visibleNav[0]?.items[0]?.[0];
   const logout=async()=>{try{await api('/auth/logout',{method:'POST'});}finally{setSession(null);setSessionState(null);}};
-  return <div className="app" dir="rtl"><aside className="sidebar"><div className="brand"><div className="brand-mark">RFQ</div>
+  return <PermissionProvider permissions={user.permissions}><div className="app" dir="rtl"><aside className="sidebar"><div className="brand"><div className="brand-mark">RFQ</div>
     <div><strong>{brandConfig.name}</strong><small>إدارة الكتالوج والطلبات</small></div></div>
-    {nav.map(group=><div className="nav-group" key={group.label}><div className="nav-label">{group.label}</div>{group.items.map(([key,label])=>
-      <button key={key} className={'nav-button '+(page===key?'active':'')} onClick={()=>setPage(key)}>{label}</button>)}</div>)}</aside>
+    {visibleNav.map(group=><div className="nav-group" key={group.label}><div className="nav-label">{group.label}</div>{group.items.map(([key,label])=>
+      <button key={key} className={'nav-button '+(activePage===key?'active':'')} onClick={()=>setPage(key)}>{label}</button>)}</div>)}</aside>
     <main className="main"><header className="topbar"><div><strong>{user.fullName}</strong><span className="muted"> · {user.roles.join('، ')}</span></div>
       <button className="button secondary small" onClick={()=>void logout()}>تسجيل الخروج</button></header>
-      <section className="content"><Router page={page}/></section></main></div>;
+      <section className="content">{activePage?<Router page={activePage}/>:<Empty label="لا توجد أقسام متاحة لحسابك."/>}</section></main></div></PermissionProvider>;
 }
 function Router({page}:{page:string}){
+  const{has}=usePermissions();
   if(page==='dashboard')return <Dashboard/>;
   if(page==='products')return <Products/>;
-  if(['categories','brands','attributes','filters'].includes(page))return <CatalogManager kind={page}/>;
+  if(['categories','brands','attributes','filters'].includes(page))return <CatalogManager kind={page} canWrite={has(page+':write')}/>;
   if(page==='requests'||page.startsWith('requests:'))return <Requests initialStatus={page.split(':')[1]??''}/>;
   if(page==='contacts')return <Contacts/>;
   if(page==='notifications')return <Notifications/>;
@@ -71,14 +75,15 @@ function Dashboard(){
 function MetricTable({title,rows}:{title:string;rows:Row[]}){return <div className="panel"><h3>{title}</h3>{rows.length?rows.map((row,index)=>
   <div key={index} style={{display:'flex',justifyContent:'space-between',padding:'8px 0',borderBottom:'1px solid #edf2f3'}}><span>{row.label}</span><strong>{row.request_count}</strong></div>):<Empty/>}</div>;}
 function Products(){
+  const{has}=usePermissions();const canWrite=has(PERMISSIONS.productsWrite);
   const{data,error,loading,load}=useRemote<{items:Row[];count:number}>('/admin/products',{items:[],count:0});
   const[editing,setEditing]=useState<Row|null>(null),[importing,setImporting]=useState(false);
   return <Page title="المنتجات" description="منتجات كتالوج بمواصفات ووحدات قياس دون أي حقول مالية."
-    action={<div className="toolbar"><button className="button secondary" onClick={()=>setImporting(true)}>استيراد Excel</button><button className="button" onClick={()=>setEditing({})}>إضافة منتج</button></div>}>{error&&<div className="error">{error}</div>}
+    action={canWrite?<div className="toolbar"><button className="button secondary" onClick={()=>setImporting(true)}>استيراد Excel</button><button className="button" onClick={()=>setEditing({})}>إضافة منتج</button></div>:undefined}>{error&&<div className="error">{error}</div>}
     <div className="table-wrap">{loading?<Empty loading/>:<table><thead><tr><th>المنتج</th><th>SKU</th><th>الحالة</th><th>التوفر</th><th>الوحدة</th><th></th></tr></thead>
       <tbody>{data.items.map(row=><tr key={row.id}><td><strong>{row.title_ar}</strong><div className="muted">{row.title_en}</div></td><td>{row.sku||'—'}</td>
         <td><span className="badge">{row.status}</span></td><td>{row.availability_status}</td><td>{units[row.unit_of_measure]??row.unit_of_measure}</td>
-        <td><button className="button secondary small" onClick={()=>void api<Row>('/admin/products/'+row.id).then(setEditing)}>تعديل</button></td></tr>)}</tbody></table>}</div>
+        <td>{canWrite&&<button className="button secondary small" onClick={()=>void api<Row>('/admin/products/'+row.id).then(setEditing)}>تعديل</button>}</td></tr>)}</tbody></table>}</div>
     {editing&&<ProductEditor product={editing} close={()=>setEditing(null)} saved={async()=>{setEditing(null);await load();}}/>}
     {importing&&<ImportProducts close={()=>setImporting(false)} done={load}/>}</Page>;
 }
@@ -98,20 +103,21 @@ function Requests({initialStatus}:{initialStatus:string}){
     {selected&&<RequestDialog id={selected.id} close={()=>setSelected(null)} changed={load}/>}</Page>;
 }
 function RequestDialog({id,close,changed}:{id:string;close:()=>void;changed:()=>Promise<void>}){
+  const{has}=usePermissions();const canWrite=has(PERMISSIONS.quoteRequestsWrite),canAssign=has(PERMISSIONS.quoteRequestsAssign)&&has(PERMISSIONS.teamRead);
   const{data,error,loading,load}=useRemote<Row>('/admin/quote-requests/'+id,{});const[users,setUsers]=useState<Row[]>([]),[note,setNote]=useState('');
-  useEffect(()=>{api<Row[]>('/admin/team/users').then(setUsers).catch(()=>setUsers([]));},[]);
+  useEffect(()=>{if(canAssign)api<Row[]>('/admin/team/users').then(setUsers).catch(()=>setUsers([]));},[canAssign]);
   const setStatus=async(status:string)=>{await api('/admin/quote-requests/'+id+'/status',{method:'PATCH',body:JSON.stringify({status})});await load();await changed();};
   const assign=async(adminUserId:string)=>{await api('/admin/quote-requests/'+id+'/assignee',{method:'PATCH',body:JSON.stringify({adminUserId:adminUserId||undefined})});await load();await changed();};
   const addNote=async()=>{if(!note.trim())return;await api('/admin/quote-requests/'+id+'/notes',{method:'POST',body:JSON.stringify({content:note})});setNote('');await load();};
   return <div className="dialog-backdrop"><div className="dialog"><div className="dialog-head"><h2>{data.request_number??'تفاصيل الطلب'}</h2><button className="close" onClick={close}>×</button></div>
     {error&&<div className="error">{error}</div>}{loading?<Empty loading/>:<><div className="cards"><div className="card"><span className="muted">الحالة</span><h3>{statusLabels[data.status]}</h3></div>
       <div className="card"><span className="muted">جهة الاتصال</span><h3>{data.full_name}</h3><div>{data.phone}</div></div><div className="card"><span className="muted">المدينة</span><h3>{data.city||'—'}</h3></div></div>
-      <div className="toolbar"><select value={data.status} onChange={e=>void setStatus(e.target.value)}>{[data.status,...(data.allowedTransitions??[])].map((key:string)=><option key={key} value={key}>{statusLabels[key]??key}</option>)}</select>
-        <select value={data.assigned_to_admin_user_id??''} onChange={e=>void assign(e.target.value)}><option value="">غير معين</option>{users.map(user=><option key={user.id} value={user.id}>{user.full_name}</option>)}</select></div>
+      {(canWrite||canAssign)&&<div className="toolbar">{canWrite&&<select value={data.status} onChange={e=>void setStatus(e.target.value)}>{[data.status,...(data.allowedTransitions??[])].map((key:string)=><option key={key} value={key}>{statusLabels[key]??key}</option>)}</select>}
+        {canAssign&&<select value={data.assigned_to_admin_user_id??''} onChange={e=>void assign(e.target.value)}><option value="">غير معين</option>{users.map(user=><option key={user.id} value={user.id}>{user.full_name}</option>)}</select>}</div>}
       <div className="grid-two"><div className="panel"><h3>العناصر وقت الإرسال</h3><div className="request-items">{(data.items??[]).map((item:Row)=><div className="request-item" key={item.id}>
         {item.image_url_snapshot&&<img src={item.image_url_snapshot} alt=""/>}<div><strong>{item.product_title_snapshot}</strong><div>{item.variant_title_snapshot}</div>
         <div>{item.quantity} {units[item.unit_snapshot]??item.unit_snapshot}</div>{item.item_note&&<small>{item.item_note}</small>}</div></div>)}</div></div>
-        <div><div className="panel"><h3>ملاحظة داخلية</h3><textarea rows={3} style={{width:'100%'}} value={note} onChange={e=>setNote(e.target.value)}/><button className="button small" onClick={()=>void addNote()}>إضافة</button>
+        <div><div className="panel"><h3>ملاحظة داخلية</h3>{canWrite&&<><textarea rows={3} style={{width:'100%'}} value={note} onChange={e=>setNote(e.target.value)}/><button className="button small" onClick={()=>void addNote()}>إضافة</button></>}
           {(data.notes??[]).map((item:Row)=><p key={item.id}><strong>{item.admin_name}</strong>: {item.content}</p>)}</div>
           <div className="panel"><h3>سجل الحالات</h3><div className="timeline">{(data.history??[]).map((item:Row)=><div className="timeline-item" key={item.id}>
             <strong>{statusLabels[item.new_status]??item.new_status}</strong><div className="muted">{new Date(item.created_at).toLocaleString('ar')}</div></div>)}</div></div></div></div></>}</div></div>;
@@ -133,34 +139,40 @@ function ContactDialog({id,close}:{id:string;close:()=>void}){
         <tr key={request.id}><td>{request.request_number}</td><td>{statusLabels[request.status]??request.status}</td><td>{new Date(request.created_at).toLocaleString('ar')}</td></tr>)}</tbody></table></div></>}</div></div>;
 }
 function Notifications(){
+  const{has}=usePermissions();const canWrite=has(PERMISSIONS.notificationsWrite);
   const{data,error,loading,load}=useRemote<Row[]>('/admin/notifications',[]);
   const read=async(id:string)=>{await api('/admin/notifications/'+id+'/read',{method:'PATCH'});await load();};
-  return <Page title="الإشعارات" action={<button className="button secondary" onClick={async()=>{await api('/admin/notifications/read-all',{method:'PATCH'});await load();}}>تحديد الكل كمقروء</button>}>
-    {error&&<div className="error">{error}</div>}{loading?<Empty loading/>:<div className="panel">{data.map(row=><div key={row.id} style={{padding:14,borderBottom:'1px solid #e6eef0',opacity:row.read_at?.8:1}} onClick={()=>void read(row.id)}>
+  return <Page title="الإشعارات" action={canWrite?<button className="button secondary" onClick={async()=>{await api('/admin/notifications/read-all',{method:'PATCH'});await load();}}>تحديد الكل كمقروء</button>:undefined}>
+    {error&&<div className="error">{error}</div>}{loading?<Empty loading/>:<div className="panel">{data.map(row=><div key={row.id} style={{padding:14,borderBottom:'1px solid #e6eef0',opacity:row.read_at?.8:1,cursor:canWrite?'pointer':'default'}} onClick={()=>canWrite&&void read(row.id)}>
       <strong>{row.title}</strong><p>{row.body}</p><small className="muted">{new Date(row.created_at).toLocaleString('ar')}</small></div>)}</div>}</Page>;
 }
 function Team(){
-  const{data:users,error,loading}=useRemote<Row[]>('/admin/team/users',[]);const{data:roles}=useRemote<Row[]>('/admin/team/roles',[]);
-  const[form,setForm]=useState({email:'',fullName:'',roleName:'quote_agent'}),[message,setMessage]=useState('');
-  const invite=async(event:FormEvent)=>{event.preventDefault();try{await api('/admin/team/invites',{method:'POST',body:JSON.stringify(form)});setMessage('تم إرسال الدعوة.');}catch(value){setMessage((value as Error).message);}};
-  return <Page title="الفريق والأدوار">{error&&<div className="error">{error}</div>}<div className="grid-two"><div className="table-wrap">{loading?<Empty loading/>:<table><thead><tr><th>المستخدم</th><th>الدور</th><th>الحالة</th></tr></thead>
-    <tbody>{users.map(row=><tr key={row.id}><td>{row.full_name}<div className="muted">{row.email}</div></td><td>{row.roles?.join('، ')}</td><td>{row.is_active?'فعال':'موقوف'}</td></tr>)}</tbody></table>}</div>
-    <form className="panel" onSubmit={invite}><h3>دعوة موظف</h3>{message&&<div className={message.startsWith('تم')?'success':'error'}>{message}</div>}
+  const{has}=usePermissions();const canWrite=has(PERMISSIONS.teamWrite);
+  const{data:users,error,loading,load}=useRemote<Row[]>('/admin/team/users',[]);const{data:roles}=useRemote<Row[]>('/admin/team/roles',[]);
+  const[form,setForm]=useState({email:'',fullName:'',roleName:'quote_agent'}),[message,setMessage]=useState(''),[editing,setEditing]=useState<Row|null>(null);
+  const invite=async(event:FormEvent)=>{event.preventDefault();try{await api('/admin/team/invites',{method:'POST',body:JSON.stringify(form)});setMessage('تمت جدولة الدعوة للإرسال.');setForm({email:'',fullName:'',roleName:'quote_agent'});}catch(value){setMessage((value as Error).message);}};
+  const saveUser=async()=>{if(!editing)return;setMessage('');try{await api('/admin/team/users/'+editing.id,{method:'PATCH',body:JSON.stringify({roles:editing.roles,isActive:editing.is_active})});setEditing(null);setMessage('تم تحديث عضو الفريق.');await load();}catch(value){setMessage((value as Error).message);}};
+  return <Page title="الفريق والأدوار" description="إدارة أدوار أعضاء الفريق وحالة الوصول.">{(error||message)&&<div className={message.startsWith('تم')?'success':'error'}>{error||message}</div>}<div className="grid-two"><div className="table-wrap">{loading?<Empty loading/>:<table><thead><tr><th>المستخدم</th><th>الدور</th><th>الحالة</th><th></th></tr></thead>
+    <tbody>{users.map(row=><tr key={row.id}><td>{row.full_name}<div className="muted">{row.email}</div></td><td>{row.roles?.join('، ')}</td><td><span className="badge">{row.is_active?'فعال':'موقوف'}</span></td><td>{canWrite&&<button className="button secondary small" onClick={()=>setEditing({...row,roles:[...(row.roles??[])]})}>إدارة</button>}</td></tr>)}</tbody></table>}</div>
+    {canWrite&&<form className="panel" onSubmit={invite}><h3>دعوة موظف</h3>
       <Field label="الاسم" value={form.fullName} onChange={fullName=>setForm(current=>({...current,fullName}))} required/>
       <Field label="البريد" type="email" value={form.email} onChange={email=>setForm(current=>({...current,email}))} required/>
       <label className="field"><span>الدور</span><select value={form.roleName} onChange={e=>setForm(current=>({...current,roleName:e.target.value}))}>{roles.map(role=><option key={role.id} value={role.name}>{role.name}</option>)}</select></label>
-      <button className="button" style={{marginTop:16}}>إرسال الدعوة</button></form></div></Page>;
+      <button className="button" style={{marginTop:16}}>جدولة الدعوة</button></form>}</div>
+    <div className="cards" style={{marginTop:20}}>{roles.map(role=><div className="card" key={role.id}><strong>{role.name}</strong><p className="muted">{role.description}</p><small>{(role.permissions??[]).join('، ')}</small></div>)}</div>
+    {editing&&<div className="dialog-backdrop"><div className="dialog"><div className="dialog-head"><h2>إدارة {editing.full_name}</h2><button className="close" onClick={()=>setEditing(null)}>×</button></div><fieldset className="choice-list"><legend>الأدوار</legend>{roles.map(role=><label key={role.id}><input type="checkbox" checked={editing.roles.includes(role.name)} onChange={event=>setEditing(current=>({...current!,roles:event.target.checked?[...current!.roles,role.name]:current!.roles.filter((name:string)=>name!==role.name)}))}/>{role.name}</label>)}</fieldset><label className="field check"><input type="checkbox" checked={editing.is_active} onChange={event=>setEditing(current=>({...current!,is_active:event.target.checked}))}/> الحساب فعال</label><p className="muted">لا يمكن تعطيل حسابك أو تعطيل/خفض آخر Owner فعال.</p><div className="dialog-actions"><button className="button" disabled={!editing.roles.length} onClick={()=>void saveUser()}>حفظ</button><button className="button secondary" onClick={()=>setEditing(null)}>إلغاء</button></div></div></div>}</Page>;
 }
 function Media(){
+  const{has}=usePermissions();const canWrite=has(PERMISSIONS.mediaWrite);
   const{data,error,loading,load}=useRemote<Row[]>('/admin/media',[]);const[message,setMessage]=useState('');
   const upload=async(event:FormEvent<HTMLFormElement>)=>{event.preventDefault();const form=new FormData(event.currentTarget);try{await api('/admin/media',{method:'POST',body:form});setMessage('تم رفع الملف.');await load();}catch(value){setMessage((value as Error).message);}};
-  return <Page title="الوسائط">{message&&<div className={message.startsWith('تم')?'success':'error'}>{message}</div>}<form className="toolbar" onSubmit={upload}><input name="file" type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4" required/><button className="button">رفع</button></form>
+  return <Page title="الوسائط">{message&&<div className={message.startsWith('تم')?'success':'error'}>{message}</div>}{canWrite&&<form className="toolbar" onSubmit={upload}><input name="file" type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4" required/><button className="button">رفع</button></form>}
     {error&&<div className="error">{error}</div>}{loading?<Empty loading/>:<div className="cards">{data.map(row=><div className="card" key={row.id}><img src={row.public_url} alt="" style={{width:'100%',height:140,objectFit:'cover',borderRadius:8}}/>
       <small>{row.mime_type}</small></div>)}</div>}</Page>;
 }
-function Reports(){return <Page title="التقارير" description="تقارير تشغيلية لطلبات العروض والمنتجات الأكثر طلبًا."><div className="cards">
-  <div className="card"><h3>طلبات عروض الأسعار</h3><p className="muted">تصدير قائمة الطلبات الحالية إلى Excel.</p><button className="button" onClick={()=>void download('/admin/quote-requests/export','quote-requests.xlsx')}>تصدير</button></div>
-  <div className="card"><h3>المنتجات</h3><p className="muted">تصدير كتالوج المنتجات وخصائص الطلب.</p><button className="button" onClick={()=>void download('/admin/products/export','products.xlsx')}>تصدير</button></div></div></Page>;}
+function Reports(){const{has}=usePermissions();return <Page title="التقارير" description="تقارير تشغيلية لطلبات العروض والمنتجات الأكثر طلبًا."><div className="cards">
+  {has(PERMISSIONS.quoteRequestsExport)&&<div className="card"><h3>طلبات عروض الأسعار</h3><p className="muted">تصدير قائمة الطلبات الحالية إلى Excel.</p><button className="button" onClick={()=>void download('/admin/quote-requests/export','quote-requests.xlsx')}>تصدير</button></div>}
+  {has(PERMISSIONS.productsRead)&&<div className="card"><h3>المنتجات</h3><p className="muted">تصدير كتالوج المنتجات وخصائص الطلب.</p><button className="button" onClick={()=>void download('/admin/products/export','products.xlsx')}>تصدير</button></div>}</div></Page>;}
 function Audit(){
   const{data,error,loading}=useRemote<Row[]>('/admin/audit',[]);
   return <Page title="سجل العمليات">{error&&<div className="error">{error}</div>}<div className="table-wrap">{loading?<Empty loading/>:<table><thead><tr><th>العملية</th><th>المستخدم</th><th>النوع</th><th>التاريخ</th></tr></thead>

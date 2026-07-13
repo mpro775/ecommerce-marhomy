@@ -12,6 +12,6 @@ import { NotificationsService } from './notifications.service';
 export class NotificationsController{
   constructor(private readonly notifications:NotificationsService){}
   @Get()list(@CurrentUser()user:AuthUser,@Query('unread')unread?:string){return this.notifications.list(user.id,unread==='true');}
-  @Patch('read-all')readAll(@CurrentUser()user:AuthUser){return this.notifications.readAll(user.id);}
-  @Patch(':id/read')read(@Param('id')id:string,@CurrentUser()user:AuthUser){return this.notifications.read(id,user.id);}
+  @Patch('read-all')@RequirePermissions(PERMISSIONS.notificationsRead,PERMISSIONS.notificationsWrite)readAll(@CurrentUser()user:AuthUser){return this.notifications.readAll(user.id);}
+  @Patch(':id/read')@RequirePermissions(PERMISSIONS.notificationsRead,PERMISSIONS.notificationsWrite)read(@Param('id')id:string,@CurrentUser()user:AuthUser){return this.notifications.read(id,user.id);}
 }

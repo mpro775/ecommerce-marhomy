@@ -33,11 +33,14 @@ npm run migrate:down
 npm run migrate:fresh
 npm run worker:outbox
 npm run worker:carts
+npm run worker:idempotency
 ```
 
 Run `worker:carts` as a long-lived process. It expires carts without requiring a later storefront visit, flags excessive creation or item activity, and archives expired/submitted carts after the configured retention period.
 
-`migrate:fresh` intentionally replaces the target `public` schema and must only be used against a new or disposable database.
+Run `worker:idempotency` as a long-lived process. It removes expired idempotency keys hourly by default; configure the interval with `IDEMPOTENCY_CLEANUP_INTERVAL_MS`.
+
+`migrate:fresh` intentionally replaces the target `public` schema and must only be used against a new or disposable database. In production it is disabled unless `ALLOW_DESTRUCTIVE_MIGRATION=true` is explicitly set.
 
 ## Backup and restore
 

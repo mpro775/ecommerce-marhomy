@@ -18,6 +18,7 @@ x-api-environment: &api-environment
   APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Riyadh}
   ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080,http://localhost:8081}
   QUOTE_NOTIFICATION_EMAILS: ${QUOTE_NOTIFICATION_EMAILS:-}
+  IDEMPOTENCY_CLEANUP_INTERVAL_MS: ${IDEMPOTENCY_CLEANUP_INTERVAL_MS:-3600000}
   EMAIL_DELIVERY_MODE: ${EMAIL_DELIVERY_MODE:-log}
   EMAIL_FROM: ${EMAIL_FROM:-no-reply@example.com}
   SMTP_HOST: ${SMTP_HOST:-}
@@ -87,6 +88,15 @@ services:
     <<: *api-build
     restart: unless-stopped
     command: ["node", "dist/workers/cart-maintenance.worker.js"]
+    environment: *api-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  idempotency-worker:
+    <<: *api-build
+    restart: unless-stopped
+    command: ["node", "dist/workers/idempotency-key-cleanup.worker.js"]
     environment: *api-environment
     depends_on:
       migrate:

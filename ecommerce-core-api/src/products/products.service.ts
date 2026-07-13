@@ -6,6 +6,7 @@ import { CreateProductDto } from './dto';
 import type { ListProductsQuery, ProductFilterRangeDto, ProductImageDto, ProductVariantDto, UpdateProductDto } from './dto';
 import * as ExcelJS from 'exceljs';
 interface ProductIdRow{id:string}
+interface PublicRangeFilter{filterId:string;min:number|null;max:number|null}
 @Injectable()
 export class ProductsService{
   constructor(private readonly database:DatabaseService){}
@@ -19,6 +20,13 @@ export class ProductsService{
     if(selectedFilters.length){values.push(selectedFilters);const filterIndex=values.length;values.push(selectedFilters.length);
       where.push('p.id IN (SELECT product_id FROM product_filter_values WHERE filter_value_id=ANY($'+filterIndex+
         '::uuid[]) GROUP BY product_id HAVING COUNT(DISTINCT filter_value_id)=$'+values.length+')');}
+    for(const range of this.parsePublicRangeFilters(query.filterRanges)){
+      values.push(range.filterId);const filterIndex=values.length;
+      const conditions=['pfr.product_id=p.id','pfr.filter_id=$'+filterIndex+'::uuid'];
+      if(range.min!==null){values.push(range.min);conditions.push('pfr.range_value >= $'+values.length);}
+      if(range.max!==null){values.push(range.max);conditions.push('pfr.range_value <= $'+values.length);}
+      where.push('EXISTS(SELECT 1 FROM product_filter_ranges pfr WHERE '+conditions.join(' AND ')+')');
+    }
     const clause=where.join(' AND ');
     const countResult=await this.database.query<{count:string}>(`SELECT COUNT(DISTINCT p.id)::text AS count FROM products p
       LEFT JOIN categories c ON c.id=p.category_id LEFT JOIN brands b ON b.id=p.brand_id WHERE `+clause,values);
@@ -68,16 +76,20 @@ export class ProductsService{
       return this.requireOne(client,id);
     });
   }
+  private parsePublicRangeFilters(value?:string):PublicRangeFilter[]{
+    if(!value)return[];
+    return value.split(',').filter(Boolean).map(entry=>{
+      const [filterId,minText='',maxText='',...extra]=entry.split(':');
+      const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      const min=minText===''?null:Number(minText),max=maxText===''?null:Number(maxText);
+      if(extra.length||!uuid.test(filterId)||min===null&&max===null||min!==null&&!Number.isFinite(min)||max!==null&&!Number.isFinite(max)||min!==null&&max!==null&&min>max)
+        throw new BadRequestException('Invalid numeric filter range');
+      return{filterId,min,max};
+    });
+  }
   async remove(id:string):Promise<void>{
-    const inCarts=await this.database.query('SELECT 1 FROM quote_cart_items WHERE product_id=$1 LIMIT 1',[id]);
-    const inRequests=await this.database.query('SELECT 1 FROM quote_request_items WHERE product_id=$1 LIMIT 1',[id]);
-    if((inCarts.rowCount??0)>0||(inRequests.rowCount??0)>0){
-      const result=await this.database.query(`UPDATE products SET status='archived',quote_enabled=false,updated_at=NOW() WHERE id=$1`,[id]);
-      if(!result.rowCount)throw new NotFoundException('Product not found');
-    }else{
-      const result=await this.database.query('DELETE FROM products WHERE id=$1',[id]);
-      if(!result.rowCount)throw new NotFoundException('Product not found');
-    }
+    const result=await this.database.query(`UPDATE products SET status='archived',quote_enabled=false,updated_at=NOW() WHERE id=$1`,[id]);
+    if(!result.rowCount)throw new NotFoundException('Product not found');
   }
   async related(id:string):Promise<unknown[]>{return(await this.database.query(`SELECT p.*,
     (SELECT image_url FROM product_images WHERE product_id=p.id ORDER BY is_primary DESC,sort_order LIMIT 1) AS primary_image_url

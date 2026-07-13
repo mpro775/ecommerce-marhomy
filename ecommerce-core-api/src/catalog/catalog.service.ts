@@ -58,6 +58,7 @@ export class CatalogService{
   }
   async update(kind:Kind,id:string,input:UpdateCatalogEntryDto):Promise<unknown>{
     this.assertKind(kind);
+    if(kind==='categories'&&input.parentId!==undefined)await this.assertValidCategoryParent(id,input.parentId);
     const columns:{key:keyof UpdateCatalogEntryDto;column:string}[]=[
       {key:'parentId',column:'parent_id'},{key:'titleAr',column:'title_ar'},{key:'titleEn',column:'title_en'},
       {key:'slug',column:'slug'},{key:'descriptionAr',column:'description_ar'},{key:'descriptionEn',column:'description_en'},
@@ -103,6 +104,18 @@ export class CatalogService{
       'INSERT INTO category_attributes(category_id,attribute_id,sort_order) VALUES($1,$2,$3)',[categoryId,attributeIds[index],index]);
   });}
   private assertKind(kind:string):asserts kind is Kind{if(!['categories','brands','attributes','filters'].includes(kind))throw new BadRequestException('Unsupported catalog type');}
+  private async assertValidCategoryParent(categoryId:string,parentId:string|null):Promise<void>{
+    if(parentId===null)return;
+    if(parentId===categoryId)throw new BadRequestException('A category cannot be its own parent');
+    const result=await this.database.query<{parent_exists:boolean;is_descendant:boolean}>(`WITH RECURSIVE descendants AS (
+      SELECT id FROM categories WHERE parent_id=$1
+      UNION
+      SELECT c.id FROM categories c JOIN descendants d ON c.parent_id=d.id
+    ) SELECT EXISTS(SELECT 1 FROM categories WHERE id=$2) AS parent_exists,
+      EXISTS(SELECT 1 FROM descendants WHERE id=$2) AS is_descendant`,[categoryId,parentId]);
+    if(!result.rows[0]?.parent_exists)throw new BadRequestException('Parent category not found');
+    if(result.rows[0].is_descendant)throw new BadRequestException('A descendant category cannot be selected as the parent');
+  }
   private allowedColumns(kind:Kind):Set<string>{
     const seo=['seo_title_ar','seo_title_en','seo_description_ar','seo_description_en'];
     const map:Record<Kind,string[]>={categories:['parent_id','title_ar','title_en','slug','description_ar','description_en','image_url','is_active','sort_order',...seo],

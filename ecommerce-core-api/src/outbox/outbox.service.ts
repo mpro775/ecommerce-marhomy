@@ -48,6 +48,11 @@ export class OutboxService{
     return result.rowCount ?? 0;
   }
   private async deliver(event:OutboxRow):Promise<void>{
+    if(event.event_type==='admin_invitation_requested'||event.event_type==='admin_password_reset_requested'){
+      const recipients=Array.isArray(event.payload.recipients)?event.payload.recipients.map(String):[];
+      await this.sendEmail(recipients,String(event.payload.subject??''),String(event.payload.body??''));
+      return;
+    }
     const recipients=(this.config.get<string>('QUOTE_NOTIFICATION_EMAILS','')??'').split(',').map((item)=>item.trim()).filter(Boolean);
     const requestNumber=String(event.payload.requestNumber??'');
     if(event.event_type==='quote_request_submitted')await this.sendEmail(recipients,'New quote request '+requestNumber,

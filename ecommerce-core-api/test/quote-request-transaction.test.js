@@ -6,6 +6,7 @@ const service=fs.readFileSync(path.resolve(__dirname,'../src/quote-requests/quot
 test('submission is a single transaction with locking and idempotency',()=>{
   assert.match(service,/database\.transaction/);assert.match(service,/FOR UPDATE/);assert.match(service,/idempotency_keys/);
   assert.match(service,/request_hash/);assert.match(service,/pg_advisory_xact_lock/);assert.match(service,/Quote cart is empty/);
+  assert.match(service,/DELETE FROM idempotency_keys[\s\S]*expires_at<=NOW\(\)/);
 });
 test('submission stores snapshots, closes cart, creates history and durable event',()=>{
   assert.match(service,/quote_request_items/);assert.match(service,/product_title_snapshot/);assert.match(service,/attributes_snapshot/);

@@ -3,12 +3,11 @@ import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
 import { createHash, randomBytes } from 'node:crypto';
 import { DatabaseService } from '../database/database.service';
-import { EmailService } from '../email/email.service';
 import type { AuthUser } from '../auth/auth.types';
 import type { AcceptInviteDto, InviteAdminDto, ResetPasswordDto, UpdateAdminDto } from './dto';
 @Injectable()
 export class TeamService{
-  constructor(private readonly database:DatabaseService,private readonly email:EmailService,private readonly config:ConfigService){}
+  constructor(private readonly database:DatabaseService,private readonly config:ConfigService){}
   async users():Promise<unknown[]>{return(await this.database.query(`SELECT u.id,u.email,u.full_name,u.is_active,u.last_login_at,u.created_at,
     COALESCE(array_agg(DISTINCT r.name) FILTER(WHERE r.name IS NOT NULL),'{}') AS roles
     FROM admin_users u LEFT JOIN admin_user_roles ur ON ur.admin_user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id
@@ -20,11 +19,20 @@ export class TeamService{
     if(exists.rows[0])throw new ConflictException('Admin user already exists');
     const role=await this.database.query<{id:string}>('SELECT id FROM roles WHERE name=$1',[input.roleName]);
     if(!role.rows[0])throw new BadRequestException('Role not found');
-    const token=randomBytes(36).toString('base64url'),hash=this.hash(token),expiresAt=new Date(Date.now()+72*3600000);
-    const result=await this.database.query<{id:string}>(`INSERT INTO admin_invites(email,full_name,token_hash,role_id,invited_by_admin_user_id,expires_at)
-      VALUES($1,$2,$3,$4,$5,$6) RETURNING id`,[input.email.toLowerCase(),input.fullName,hash,role.rows[0].id,actor.id,expiresAt]);
-    await this.email.send([input.email],'Admin invitation','Accept your invitation: '+this.config.get<string>('ADMIN_APP_URL')+'/accept-invite?token='+token);
-    return{id:result.rows[0].id,expiresAt};
+    const email=input.email.toLowerCase();
+    return this.database.transaction(async(client)=>{
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',['admin-invite:'+email]);
+      const pending=await client.query<{id:string;expires_at:Date}>(`SELECT id,expires_at FROM admin_invites
+        WHERE LOWER(email)=$1 AND accepted_at IS NULL AND expires_at>NOW() ORDER BY created_at DESC LIMIT 1`,[email]);
+      if(pending.rows[0])return{id:pending.rows[0].id,expiresAt:pending.rows[0].expires_at};
+      const token=randomBytes(36).toString('base64url'),expiresAt=new Date(Date.now()+72*3600000);
+      const result=await client.query<{id:string}>(`INSERT INTO admin_invites(email,full_name,token_hash,role_id,invited_by_admin_user_id,expires_at)
+        VALUES($1,$2,$3,$4,$5,$6) RETURNING id`,[email,input.fullName,this.hash(token),role.rows[0].id,actor.id,expiresAt]);
+      const link=this.config.get<string>('ADMIN_APP_URL')+'/accept-invite?token='+token;
+      await client.query(`INSERT INTO outbox_events(event_type,aggregate_type,aggregate_id,payload)
+        VALUES('admin_invitation_requested','admin_invite',$1,$2)`,[result.rows[0].id,{recipients:[email],subject:'Admin invitation',body:'Accept your invitation: '+link}]);
+      return{id:result.rows[0].id,expiresAt};
+    });
   }
   async accept(input:AcceptInviteDto):Promise<void>{
     const passwordHash=await argon2.hash(input.password,{type:argon2.argon2id});
@@ -66,10 +74,19 @@ export class TeamService{
   }
   async requestReset(email:string):Promise<void>{
     const user=await this.database.query<{id:string;email:string}>('SELECT id,email FROM admin_users WHERE LOWER(email)=LOWER($1) AND is_active=TRUE AND deleted_at IS NULL',[email]);
-    if(!user.rows[0])return;const token=randomBytes(36).toString('base64url');
-    await this.database.query(`INSERT INTO admin_password_resets(admin_user_id,token_hash,expires_at)
-      VALUES($1,$2,NOW()+INTERVAL '1 hour')`,[user.rows[0].id,this.hash(token)]);
-    await this.email.send([user.rows[0].email],'Password reset','Reset your password: '+this.config.get<string>('ADMIN_APP_URL')+'/reset-password?token='+token);
+    if(!user.rows[0])return;
+    await this.database.transaction(async(client)=>{
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',['password-reset:'+user.rows[0].id]);
+      const pending=await client.query(`SELECT id FROM admin_password_resets
+        WHERE admin_user_id=$1 AND used_at IS NULL AND expires_at>NOW() ORDER BY created_at DESC LIMIT 1`,[user.rows[0].id]);
+      if(pending.rows[0])return;
+      const token=randomBytes(36).toString('base64url');
+      const reset=await client.query<{id:string}>(`INSERT INTO admin_password_resets(admin_user_id,token_hash,expires_at)
+        VALUES($1,$2,NOW()+INTERVAL '1 hour') RETURNING id`,[user.rows[0].id,this.hash(token)]);
+      const link=this.config.get<string>('ADMIN_APP_URL')+'/reset-password?token='+token;
+      await client.query(`INSERT INTO outbox_events(event_type,aggregate_type,aggregate_id,payload)
+        VALUES('admin_password_reset_requested','admin_password_reset',$1,$2)`,[reset.rows[0].id,{recipients:[user.rows[0].email],subject:'Password reset',body:'Reset your password: '+link}]);
+    });
   }
   async reset(input:ResetPasswordDto):Promise<void>{
     const passwordHash=await argon2.hash(input.password,{type:argon2.argon2id});

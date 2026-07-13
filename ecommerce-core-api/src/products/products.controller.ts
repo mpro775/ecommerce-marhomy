@@ -36,5 +36,5 @@ export class AdminProductsController{
     await this.audit.log({adminUserId:user.id,action:'product.updated',entityType:'product',entityId:id});return result;}
   @Delete(':id')@RequirePermissions(PERMISSIONS.productsWrite)
   async remove(@Param('id')id:string,@CurrentUser()user:AuthUser){await this.products.remove(id);
-    await this.audit.log({adminUserId:user.id,action:'product.deleted',entityType:'product',entityId:id});}
+    await this.audit.log({adminUserId:user.id,action:'product.archived',entityType:'product',entityId:id});}
 }

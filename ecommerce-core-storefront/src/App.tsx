@@ -90,7 +90,8 @@ function ProductGrid({products,lang,navigate,add}:{products:Row[];lang:Lang;navi
 function Catalog({lang,navigate,add,initialCategory,initialBrand}:{lang:Lang;navigate:(page:Page)=>void;add:(product:Row,quantity:number,variantId?:string)=>Promise<void>;initialCategory:string;initialBrand:string}){
   const t=text[lang];const[search,setSearch]=useState(''),[debouncedSearch,setDebouncedSearch]=useState(''),[category,setCategory]=useState(initialCategory),[brand,setBrand]=useState(initialBrand);
   const[products,setProducts]=useState<Row[]>([]),[categories,setCategories]=useState<Row[]>([]),[brands,setBrands]=useState<Row[]>([]);
-  const[filters,setFilters]=useState<Row[]>([]),[selectedFilters,setSelectedFilters]=useState<Record<string,string>>({}),[loading,setLoading]=useState(true),[error,setError]=useState(''),[retry,setRetry]=useState(0);
+  const[filters,setFilters]=useState<Row[]>([]),[selectedFilters,setSelectedFilters]=useState<Record<string,string>>({});
+  const[selectedRanges,setSelectedRanges]=useState<Record<string,{min:string;max:string}>>({}),[loading,setLoading]=useState(true),[error,setError]=useState(''),[retry,setRetry]=useState(0);
   const selectedEntry=category?categories.find(row=>row.slug===category):brand?brands.find(row=>row.slug===brand):undefined;
   useSeo({title:selectedEntry?String(selectedEntry[lang==='ar'?'seo_title_ar':'seo_title_en']||title(selectedEntry,lang)):t.all,
     description:selectedEntry?String(selectedEntry[lang==='ar'?'seo_description_ar':'seo_description_en']||selectedEntry[lang==='ar'?'description_ar':'description_en']||''):undefined,
@@ -98,9 +99,10 @@ function Catalog({lang,navigate,add,initialCategory,initialBrand}:{lang:Lang;nav
   useEffect(()=>{const timeout=window.setTimeout(()=>setDebouncedSearch(search.trim()),350);return()=>window.clearTimeout(timeout);},[search]);
   useEffect(()=>{setCategory(initialCategory);setBrand(initialBrand);},[initialCategory,initialBrand]);
   useEffect(()=>{const controller=new AbortController();setLoading(true);setError('');const filterValues=Object.values(selectedFilters).filter(Boolean).join(',');
-    const query=new URLSearchParams({...debouncedSearch&&{search:debouncedSearch},...category&&{category},...brand&&{brand},...filterValues&&{filterValues},pageSize:'60'});
+    const filterRanges=Object.entries(selectedRanges).filter(([,range])=>range.min!==''||range.max!=='').map(([filterId,range])=>`${filterId}:${range.min}:${range.max}`).join(',');
+    const query=new URLSearchParams({...debouncedSearch&&{search:debouncedSearch},...category&&{category},...brand&&{brand},...filterValues&&{filterValues},...filterRanges&&{filterRanges},pageSize:'60'});
     api<{items:Row[]}>('/catalog/products?'+query,{signal:controller.signal}).then(value=>setProducts(value.items)).catch(value=>{if((value as Error).name!=='AbortError')setError((value as Error).message);}).finally(()=>{if(!controller.signal.aborted)setLoading(false);});
-    return()=>controller.abort();},[debouncedSearch,category,brand,selectedFilters,retry]);
+    return()=>controller.abort();},[debouncedSearch,category,brand,selectedFilters,selectedRanges,retry]);
   useEffect(()=>{const controller=new AbortController();Promise.all([api<Row[]>('/catalog/categories',{signal:controller.signal}),api<Row[]>('/catalog/brands',{signal:controller.signal}),api<Row[]>('/catalog/filters',{signal:controller.signal})])
     .then(([categoryRows,brandRows,filterRows])=>{setCategories(categoryRows);setBrands(brandRows);setFilters(filterRows);}).catch(value=>{if((value as Error).name!=='AbortError')setError((value as Error).message);});return()=>controller.abort();},[retry]);
   useEffect(()=>{const selected=categories.find(row=>row.slug===category);if(selected)void track('category_viewed',{categoryId:selected.id});},[category,categories]);
@@ -111,7 +113,10 @@ function Catalog({lang,navigate,add,initialCategory,initialBrand}:{lang:Lang;nav
       {brands.map(row=><option key={row.id} value={row.slug}>{title(row,lang)}</option>)}</select>
       {filters.filter(item=>item.filter_type==='option').map(filter=><select key={filter.id} value={selectedFilters[filter.id]??''}
         onChange={e=>setSelectedFilters(current=>({...current,[filter.id]:e.target.value}))}><option value="">{lang==='ar'?filter.name_ar:filter.name_en||filter.name_ar}</option>
-        {(filter.values??[]).map((value:Row)=><option key={value.id} value={value.id}>{lang==='ar'?value.value_ar:value.value_en||value.value_ar}</option>)}</select>)}</div>
+        {(filter.values??[]).map((value:Row)=><option key={value.id} value={value.id}>{lang==='ar'?value.value_ar:value.value_en||value.value_ar}</option>)}</select>)}
+      {filters.filter(item=>item.filter_type==='range').map(filter=><fieldset className="range-filter" key={filter.id}><legend>{lang==='ar'?filter.name_ar:filter.name_en||filter.name_ar}</legend>
+        <input type="number" step="any" aria-label={`${lang==='ar'?'الحد الأدنى':'Minimum'} ${lang==='ar'?filter.name_ar:filter.name_en||filter.name_ar}`} placeholder={lang==='ar'?'الحد الأدنى':'Minimum'} value={selectedRanges[filter.id]?.min??''} onChange={e=>setSelectedRanges(current=>({...current,[filter.id]:{min:e.target.value,max:current[filter.id]?.max??''}}))}/>
+        <input type="number" step="any" aria-label={`${lang==='ar'?'الحد الأعلى':'Maximum'} ${lang==='ar'?filter.name_ar:filter.name_en||filter.name_ar}`} placeholder={lang==='ar'?'الحد الأعلى':'Maximum'} value={selectedRanges[filter.id]?.max??''} onChange={e=>setSelectedRanges(current=>({...current,[filter.id]:{min:current[filter.id]?.min??'',max:e.target.value}}))}/></fieldset>)}</div>
     {loading?<LoadState lang={lang}/>:error?<ErrorState lang={lang} message={error} retry={()=>setRetry(value=>value+1)}/>:<ProductGrid products={products} lang={lang} navigate={navigate} add={add}/>}</div></main>;
 }
 function Product({lang,slug,navigate,add}:{lang:Lang;slug:string;navigate:(page:Page)=>void;add:(product:Row,quantity:number,variantId?:string,note?:string)=>Promise<void>}){

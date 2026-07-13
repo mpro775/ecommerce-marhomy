@@ -15,6 +15,7 @@ export const envValidationSchema = Joi.object({
   QUOTE_CART_MAINTENANCE_INTERVAL_MS: Joi.number().integer().min(60000).default(900000),
   QUOTE_CART_VISITOR_HOURLY_LIMIT: Joi.number().integer().min(2).default(10),
   QUOTE_CART_ACTIVITY_HOURLY_LIMIT: Joi.number().integer().min(10).default(100),
+  IDEMPOTENCY_CLEANUP_INTERVAL_MS: Joi.number().integer().min(60000).default(3600000),
   QUOTE_MIN_FORM_FILL_MS: Joi.number().integer().min(0).max(60000).default(1500),
   QUOTE_NOTIFICATION_EMAILS: Joi.string().allow('').default(''),
   ALLOWED_ORIGINS: Joi.string().allow('').default('http://localhost:5173,http://localhost:5174'),
