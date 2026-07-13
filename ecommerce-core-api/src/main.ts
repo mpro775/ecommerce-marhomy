@@ -14,9 +14,46 @@ async function bootstrap():Promise<void>{
   const sentryDsn=config.get<string>('SENTRY_DSN');if(sentryDsn)Sentry.init({dsn:sentryDsn,environment:config.get<string>('NODE_ENV')});
   app.setGlobalPrefix('api');app.use(helmet());app.use(json({limit:config.get<string>('HTTP_JSON_BODY_LIMIT','1mb')}));
   app.use(urlencoded({limit:config.get<string>('HTTP_JSON_BODY_LIMIT','1mb'),extended:true}));
-  const origins=new Set((config.get<string>('ALLOWED_ORIGINS','')??'').split(',').map((item)=>item.trim()).filter(Boolean));
-  app.enableCors({credentials:true,origin:(origin:string|undefined,callback:(error:Error|null,allow?:boolean)=>void)=>
-    callback(null,!origin||origins.has(origin))});
+  const exactOrigins = (config.get<string>('ALLOWED_ORIGINS', '') ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  const allowedDomains = (config.get<string>('ALLOWED_ORIGIN_DOMAINS', '') ?? '')
+    .split(',')
+    .map((domain) => domain.trim().toLowerCase())
+    .filter(Boolean);
+
+  app.enableCors({
+    origin: (origin: string | undefined, callback: (error: Error | null, allow?: boolean) => void) => {
+      // يسمح بطلبات السيرفرات والأدوات التي لا ترسل Origin
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      try {
+        const url = new URL(origin);
+        const hostname = url.hostname.toLowerCase();
+
+        const isExactOrigin = exactOrigins.includes(origin);
+
+        const isAllowedDomain = allowedDomains.some(
+          (domain) => hostname === domain || hostname.endsWith(`.${domain}`),
+        );
+
+        const isHttps = url.protocol === 'https:';
+
+        if (isHttps && (isExactOrigin || isAllowedDomain)) {
+          return callback(null, true);
+        }
+
+        return callback(new Error(`CORS origin not allowed: ${origin}`));
+      } catch {
+        return callback(new Error('Invalid CORS origin'));
+      }
+    },
+    credentials: true,
+  });
   app.useGlobalPipes(new ValidationPipe({whitelist:true,forbidNonWhitelisted:true,transform:true}));
   app.useGlobalFilters(new AllExceptionsFilter());app.useGlobalInterceptors(new RequestLoggingInterceptor());
   const document=SwaggerModule.createDocument(app,new DocumentBuilder().setTitle('Catalog and Quote Request API')

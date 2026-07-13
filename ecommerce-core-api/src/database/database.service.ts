@@ -7,7 +7,7 @@ export interface DbExecutor{
 @Injectable()
 export class DatabaseService implements OnModuleDestroy {
   private readonly pool: Pool;
-  constructor(config: ConfigService) {
+  constructor(private readonly config: ConfigService) {
     this.pool = new Pool({ connectionString: config.getOrThrow<string>('DATABASE_URL'), max: config.get<number>('DATABASE_POOL_SIZE', 10) });
   }
   query<T extends QueryResultRow = QueryResultRow>(text: string, values: unknown[] = []): Promise<QueryResult<T>> {
